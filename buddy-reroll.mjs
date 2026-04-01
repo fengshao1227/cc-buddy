@@ -169,6 +169,11 @@ const I = {
   patch_stat:      { en: '{0} (0-100, Enter = keep):',         zh: '{0} (0-100, 回车保持):' },
   patch_written:   { en: '✓ Custom companion written! Restart Claude Code → /buddy', zh: '✓ 自定义宠物已写入! 重启 Claude Code → /buddy' },
   patch_confirm:   { en: 'Proceed with patch? [Y/n]:',         zh: '确认 patch? [Y/n]:' },
+  // Hash mode
+  hash_detected:   { en: 'Hash: {0}',                         zh: 'Hash: {0}' },
+  hash_fnv:        { en: 'FNV-1a (npm install detected)',      zh: 'FNV-1a (检测到 npm 安装)' },
+  hash_wyhash:     { en: 'wyhash (native install detected)',   zh: 'wyhash (检测到原生安装)' },
+  hash_override:   { en: 'Override with --hash fnv1a or --hash wyhash', zh: '可用 --hash fnv1a 或 --hash wyhash 覆盖' },
   // Prompt
   press_enter:     { en: 'Press Enter to continue...',         zh: '按回车继续...' },
 }
@@ -272,8 +277,57 @@ function wyhash(key, seed = 0n) {
 // ══════════════════════════════════════════════════════════
 
 const IS_BUN = typeof globalThis.Bun !== 'undefined'
-function hashString(s) { return IS_BUN ? Number(BigInt(Bun.hash(s))&0xffffffffn) : Number(wyhash(Buffer.from(s,'utf8'))&0xffffffffn) }
+function hashWyhash(s) { return IS_BUN ? Number(BigInt(Bun.hash(s))&0xffffffffn) : Number(wyhash(Buffer.from(s,'utf8'))&0xffffffffn) }
 function fnv1a(s) { let h=2166136261; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)} return h>>>0 }
+
+// Detect whether the user's Claude Code uses wyhash (native/Bun) or FNV-1a (npm/Node.js)
+// Native install: Bun binary at ~/.local/share/claude/versions/
+// npm install: JS at npm root -g/@anthropic-ai/claude-code/cli.js
+let HASH_MODE = 'auto' // 'wyhash' | 'fnv1a' | 'auto'
+
+function detectClaudeInstall() {
+  // Check --hash flag override
+  const hashIdx = process.argv.indexOf('--hash')
+  if (hashIdx !== -1) {
+    const v = (process.argv[hashIdx + 1] || '').toLowerCase()
+    if (v === 'fnv' || v === 'fnv1a') return 'fnv1a'
+    if (v === 'wyhash' || v === 'bun') return 'wyhash'
+  }
+  // Check saved preference
+  try {
+    const d = JSON.parse(readFileSync(PREF_PATH, 'utf8'))
+    if (d.hashMode === 'fnv1a' || d.hashMode === 'wyhash') return d.hashMode
+  } catch {}
+  // Auto-detect: which `claude` binary would run?
+  try {
+    const whichOut = execSync('which claude', { timeout: 3000, encoding: 'utf8' }).trim()
+    if (whichOut) {
+      const real = realpathSync(whichOut)
+      // npm install: path contains node_modules or cli.js
+      if (real.includes('node_modules') || real.endsWith('.js')) return 'fnv1a'
+      // Native: path contains /versions/ (Bun binary)
+      if (real.includes('/versions/')) return 'wyhash'
+    }
+  } catch {}
+  // Fallback: check if npm package exists
+  try {
+    const npmRoot = execSync('npm root -g', { timeout: 3000, encoding: 'utf8' }).trim()
+    if (existsSync(join(npmRoot, '@anthropic-ai', 'claude-code', 'cli.js'))) {
+      // npm installed, but also check native
+      const nativeDir = join(homedir(), '.local', 'share', 'claude', 'versions')
+      if (existsSync(nativeDir) && readdirSync(nativeDir).some(f => /^\d+\.\d+\.\d+$/.test(f))) {
+        return 'wyhash' // Both exist, native takes priority in PATH usually
+      }
+      return 'fnv1a'
+    }
+  } catch {}
+  return 'wyhash' // Default to native
+}
+
+function hashString(s) {
+  if (HASH_MODE === 'fnv1a') return fnv1a(s)
+  return hashWyhash(s)
+}
 function mulberry32(seed) { let a=seed>>>0; return function(){a|=0;a=(a+0x6d2b79f5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296} }
 function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)] }
 function rollRarity(rng) { let roll=rng()*100; for(const r of RARITIES){roll-=RARITY_WEIGHTS[r];if(roll<0)return r} return 'common' }
@@ -302,7 +356,8 @@ function formatBuddy(b, uid, verbose=true) {
 }
 function banner() {
   console.log(''); console.log(c(ESC.bold+ESC.cyan, `  ${t('banner')}`)+c(ESC.dim, ` v${VERSION}`))
-  console.log(c(ESC.dim, `  ${IS_BUN ? t('runtime_bun') : t('runtime_node')}`)); console.log('')
+  const hashLabel = HASH_MODE === 'fnv1a' ? 'FNV-1a (npm install)' : 'wyhash (native install)'
+  console.log(c(ESC.dim, `  ${IS_BUN ? t('runtime_bun') : t('runtime_node')} | Hash: ${hashLabel}`)); console.log('')
 }
 
 // ══════════════════════════════════════════════════════════
@@ -792,6 +847,9 @@ async function main() {
   // First run: pick language
   if (lang === null) lang = await pickLang()
   L = lang
+
+  // Detect hash mode
+  HASH_MODE = detectClaudeInstall()
 
   // No arguments → interactive mode
   if (!hasCmd) { await interactiveMode(); return }
