@@ -169,6 +169,9 @@ const I = {
   patch_stat:      { en: '{0} (0-100, Enter = keep):',         zh: '{0} (0-100, 回车保持):' },
   patch_written:   { en: '✓ Custom companion written! Restart Claude Code → /buddy', zh: '✓ 自定义宠物已写入! 重启 Claude Code → /buddy' },
   patch_confirm:   { en: 'Proceed with patch? [Y/n]:',         zh: '确认 patch? [Y/n]:' },
+  patch_tele_q:    { en: 'Unlock speech bubbles? (bypasses telemetry check) [y/N]:', zh: '解锁气泡反应? (跳过遥测检查) [y/N]:' },
+  patch_tele_ok:   { en: '✓ Speech bubbles unlocked!',         zh: '✓ 气泡反应已解锁!' },
+  patch_tele_done: { en: '✓ Speech bubbles already unlocked.', zh: '✓ 气泡反应已解锁。' },
   // Hash mode
   hash_detected:   { en: 'Hash: {0}',                         zh: 'Hash: {0}' },
   hash_fnv:        { en: 'FNV-1a (npm install detected)',      zh: 'FNV-1a (检测到 npm 安装)' },
@@ -634,9 +637,32 @@ function applyPatch(cliPath) {
   const match = content.match(PATCH_PATTERN_BEFORE)
   if (!match) return false
   const stored = match[1], bones = match[2]
-  // Swap: {...stored,...bones} → {...bones,...stored}
   content = content.replace(PATCH_PATTERN_BEFORE, (m) =>
     m.replace(`{...${stored},...${bones}}`, `{...${bones},...${stored}}`)
+  )
+  writeFileSync(cliPath, content, 'utf8')
+  return true
+}
+
+// Telemetry bypass for buddy_react speech bubbles
+// Pattern: if(T7()!=="firstParty")return null;if(wY())return null;let O=w8()
+const TELE_PATTERN = /if\(\w+\(\)!=="firstParty"\)return null;if\((\w+)\(\)\)return null;(let \w=\w+\(\))/
+const TELE_PATCHED = /if\(\w+\(\)!=="firstParty"\)return null;(let \w=\w+\(\))/
+
+function checkTelePatch(cliPath) {
+  const content = readFileSync(cliPath, 'utf8')
+  if (TELE_PATCHED.test(content) && !TELE_PATTERN.test(content)) return 'patched'
+  if (TELE_PATTERN.test(content)) return 'unpatched'
+  return 'unknown'
+}
+
+function applyTelePatch(cliPath) {
+  let content = readFileSync(cliPath, 'utf8')
+  const match = content.match(TELE_PATTERN)
+  if (!match) return false
+  // Remove the telemetry check: if(wY())return null;
+  content = content.replace(TELE_PATTERN, (m, teleFunc, letPart) =>
+    m.replace(`if(${teleFunc}())return null;${letPart}`, letPart)
   )
   writeFileSync(cliPath, content, 'utf8')
   return true
@@ -675,6 +701,23 @@ async function interactivePatch() {
   } else {
     console.log(c(ESC.red, `  ${t('patch_fail')}\n`))
     return
+  }
+
+  // Optional: telemetry bypass for speech bubbles
+  const teleStatus = checkTelePatch(cliPath)
+  if (teleStatus === 'patched') {
+    console.log(c(ESC.green, `  ${L === 'zh' ? '✓ 气泡反应已解锁 (遥测检查已跳过)' : '✓ Speech bubbles unlocked (telemetry check bypassed)'}`))
+  } else if (teleStatus === 'unpatched') {
+    const teleQ = L === 'zh'
+      ? '解锁宠物气泡反应? (关闭遥测的用户需要此补丁) [y/N]:'
+      : 'Unlock buddy speech bubbles? (needed if telemetry is off) [y/N]:'
+    if (await confirm(teleQ, false)) {
+      if (applyTelePatch(cliPath)) {
+        console.log(c(ESC.green, `  ${L === 'zh' ? '✓ 气泡反应已解锁!' : '✓ Speech bubbles unlocked!'}`))
+      } else {
+        console.log(c(ESC.yellow, `  ${L === 'zh' ? '✗ 未找到遥测检查代码' : '✗ Telemetry check pattern not found'}`))
+      }
+    }
   }
 
   // Now offer full customization
