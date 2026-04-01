@@ -857,7 +857,7 @@ async function main() {
   // CLI mode
   switch (args.command) {
     case 'search': cliSearch(args.filters, args.options); break
-    case 'check': banner(); interactiveCheck(); break
+    case 'check': banner(); if(args.options.userId){console.log(c(ESC.bold,`  ${t('chk_cur')}`));console.log(formatBuddy(rollBuddy(args.options.userId),args.options.userId))}else{await interactiveCheck()} break
     case 'apply': banner(); if(!args.options.userId){console.log(c(ESC.red,'  Usage: apply <userID>\n'));break}; checkVersion()!=='outdated'&&doApply(args.options.userId); break
     case 'gallery': banner(); interactiveGallery(); break
     case 'selftest': banner(); interactiveSelftest(); break
