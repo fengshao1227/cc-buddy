@@ -146,6 +146,7 @@ const I = {
   // Menu
   menu_diy:        { en: '✏️   Customize name/personality',     zh: '✏️   自定义名字/性格' },
   menu_patch:      { en: '🔓  Full customize (patch cli.js)',   zh: '🔓  完全自定义 (patch cli.js)' },
+  menu_native:     { en: '🔧  Native binary patch (SALT swap)', zh: '🔧  Native 二进制补丁 (SALT 替换)' },
   diy_no_buddy:    { en: 'No buddy found. Search and apply one first!', zh: '未找到宠物。先搜索并 apply 一个吧!' },
   diy_current:     { en: 'Current buddy:',                     zh: '当前宠物:' },
   diy_done:        { en: '✓ Buddy soul updated!',              zh: '✓ 宠物灵魂已更新!' },
@@ -835,13 +836,260 @@ async function interactivePatch() {
   console.log(c(ESC.dim, `  ${JSON.stringify(preview)}\n`))
 }
 
+// ══════════════════════════════════════════════════════════
+//  Native Binary Patch — SALT replacement + ad-hoc resign
+//  Works for native install (cli.anthropic.com / irm)
+// ══════════════════════════════════════════════════════════
+
+function findNativeBinary() {
+  const home = homedir()
+  // macOS / Linux native install locations
+  const candidates = [
+    join(home, '.local', 'bin', 'claude'),
+    join(home, '.claude', 'local', 'claude'),
+    '/usr/local/bin/claude',
+  ]
+  // Windows native install locations
+  const localAppData = process.env.LOCALAPPDATA || ''
+  if (localAppData) {
+    candidates.push(join(localAppData, 'Programs', 'ClaudeCode', 'claude.exe'))
+  }
+  for (const p of candidates) {
+    if (!existsSync(p)) continue
+    try {
+      const real = realpathSync(p)
+      // Must be a real binary, not a JS file (npm)
+      if (real.endsWith('.js') || real.includes('node_modules')) continue
+      if (existsSync(real)) return real
+    } catch {}
+  }
+  // Also scan versions directory
+  const versDir = join(home, '.local', 'share', 'claude', 'versions')
+  if (existsSync(versDir)) {
+    const versions = readdirSync(versDir).filter(f => /^\d+\.\d+\.\d+$/.test(f)).sort(compareVersions)
+    if (versions.length) return join(versDir, versions[versions.length - 1])
+  }
+  return null
+}
+
+function detectSaltInFile(filePath) {
+  const buf = readFileSync(filePath)
+  const patterns = [/friend-\d{4}-\d+/, /ccbf-\d{10}/]
+  // Search in chunks to handle large binaries
+  const chunkSize = 10 * 1024 * 1024
+  for (let offset = 0; offset < buf.length; offset += chunkSize - 50) {
+    const chunk = buf.slice(offset, Math.min(offset + chunkSize, buf.length)).toString('ascii')
+    for (const pat of patterns) {
+      const m = chunk.match(pat)
+      if (m) return { salt: m[0], length: m[0].length }
+    }
+  }
+  return null
+}
+
+function generateNewSalt() {
+  // Must be same length as original SALT (15 chars: "friend-2026-401")
+  // Format: "ccbf-XXXXXXXXXX" (15 chars)
+  const ts = Math.floor(Date.now() / 1000).toString().padStart(10, '0')
+  return `ccbf-${ts}`
+}
+
+function patchBinarySalt(filePath, oldSalt, newSalt) {
+  if (newSalt.length !== oldSalt.length) {
+    throw new Error(`Salt length mismatch: "${newSalt}" (${newSalt.length}) vs "${oldSalt}" (${oldSalt.length})`)
+  }
+  const buf = readFileSync(filePath)
+  const oldBytes = Buffer.from(oldSalt, 'utf-8')
+  const newBytes = Buffer.from(newSalt, 'utf-8')
+
+  let count = 0, pos = 0
+  while (true) {
+    const idx = buf.indexOf(oldBytes, pos)
+    if (idx === -1) break
+    newBytes.copy(buf, idx)
+    count++
+    pos = idx + 1
+  }
+  if (count === 0) throw new Error(`Salt "${oldSalt}" not found in binary`)
+  writeFileSync(filePath, buf)
+  return count
+}
+
+function resignBinary(filePath) {
+  if (process.platform !== 'darwin') return true
+  try {
+    execSync(`codesign --force --sign - "${filePath}"`, { timeout: 10000, stdio: 'pipe' })
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+function searchWithSalt(salt, criteria, limit = 5_000_000) {
+  // Search using specific salt (for native binary patching)
+  const results = [], start = Date.now()
+  let best = null
+  for (let i = 0; i < limit; i++) {
+    const uid = randomBytes(32).toString('hex')
+    const hash = hashWyhash(uid + salt)  // Always wyhash for native binary
+    const rng = mulberry32(hash), rarity = rollRarity(rng)
+    const buddy = {
+      rarity, species: pick(rng, SPECIES), eye: pick(rng, EYES),
+      hat: rarity === 'common' ? 'none' : pick(rng, HATS),
+      shiny: rng() < 0.01, stats: rollStats(rng, rarity),
+    }
+    if (matchesCriteria(buddy, criteria)) {
+      if (!criteria.rarity) {
+        if (!best || RARITY_RANK[buddy.rarity] > RARITY_RANK[best.buddy.rarity]) {
+          best = { uid, buddy, attempts: i + 1 }; results.push(best)
+          console.log(c(RARITY_CLR[buddy.rarity], `  ${t('s_found')} ${RARITY_STARS[buddy.rarity]} ${buddy.rarity} ${buddy.species}${buddy.shiny ? ' ✨' : ''}` + c(ESC.dim, ` @ ${(i + 1).toLocaleString()}`)))
+          if (buddy.rarity === 'legendary') break
+        }
+      } else {
+        results.push({ uid, buddy, attempts: i + 1 })
+        console.log(c(RARITY_CLR[buddy.rarity], `  ${t('s_found')} ${RARITY_STARS[buddy.rarity]} ${buddy.rarity} ${buddy.species}${buddy.shiny ? ' ✨' : ''}` + c(ESC.dim, ` @ ${(i + 1).toLocaleString()}`)))
+        break
+      }
+    }
+    if (i > 0 && i % 500_000 === 0 && IS_TTY) {
+      const el = ((Date.now() - start) / 1000).toFixed(1)
+      console.log(c(ESC.dim, `  ... ${i.toLocaleString()} (${el}s) ...`))
+    }
+  }
+  console.log(c(ESC.dim, `\n  ${t('s_done', limit.toLocaleString(), ((Date.now() - start) / 1000).toFixed(2))}`))
+  return results
+}
+
+async function interactiveNativePatch() {
+  const nativeTitle = L === 'zh' ? '🔧 Native 二进制补丁 (SALT 替换)' : '🔧 Native Binary Patch (SALT replacement)'
+  const nativeDesc = L === 'zh'
+    ? '通过替换 SALT 值 + ad-hoc 重签名，让 native 安装的用户也能刷宠物。\n  适用于 cli.anthropic.com / irm 安装的 Claude Code。'
+    : 'Replace SALT value + ad-hoc re-sign to enable pet rerolling for native installs.\n  Works with cli.anthropic.com / irm installed Claude Code.'
+
+  console.log(c(ESC.bold, `\n  ${nativeTitle}\n`))
+  console.log(c(ESC.dim, `  ${nativeDesc}\n`))
+
+  const binPath = findNativeBinary()
+  if (!binPath) {
+    console.log(c(ESC.red, `  ${L === 'zh' ? '✗ 未找到 native 二进制文件。' : '✗ Native binary not found.'}\n`))
+    return
+  }
+  console.log(c(ESC.dim, `  Binary: ${binPath}\n`))
+
+  const detected = detectSaltInFile(binPath)
+  if (!detected) {
+    console.log(c(ESC.red, `  ${L === 'zh' ? '✗ 未检测到 SALT 值。二进制格式可能已变更。' : '✗ No SALT detected in binary. Format may have changed.'}\n`))
+    return
+  }
+  console.log(c(ESC.dim, `  ${L === 'zh' ? '当前 SALT' : 'Current SALT'}: ${detected.salt} (${detected.length} chars)`))
+
+  // Step 1: Choose target pet
+  console.log(c(ESC.bold, `\n  ${L === 'zh' ? '选择你想要的宠物:' : 'Choose your desired pet:'}\n`))
+
+  const spItems = SPECIES.map(s => `${SPECIES_EMOJI[s]}  ${s}`)
+  const spIdx = await select(L === 'zh' ? '物种:' : 'Species:', spItems, true)
+  const species = spIdx >= 0 ? SPECIES[spIdx] : null
+
+  const rarItems = [L === 'zh' ? '自动 (最高稀有度)' : 'Auto (highest rarity)', ...RARITIES.map(r => `${c(RARITY_CLR[r], RARITY_STARS[r])} ${r}`)]
+  const rarIdx = await select(L === 'zh' ? '稀有度:' : 'Rarity:', rarItems)
+  const rarity = rarIdx > 0 ? RARITIES[rarIdx - 1] : null
+
+  const eyeItems = EYES.map(e => `  ${e}`)
+  const eyeIdx = await select(L === 'zh' ? '眼睛:' : 'Eyes:', eyeItems, true)
+  const eye = eyeIdx >= 0 ? EYES[eyeIdx] : null
+
+  const hatItems = HATS.map(h => `${HAT_EMOJI[h]}  ${h}`)
+  const hatIdx = await select(L === 'zh' ? '帽子:' : 'Hat:', hatItems, true)
+  const hat = hatIdx >= 0 ? HATS[hatIdx] : null
+
+  const shinyAns = await ask(`\n  ${L === 'zh' ? '闪光? [y/N]:' : 'Shiny? [y/N]:'} `)
+  const shiny = shinyAns.toLowerCase().startsWith('y') ? true : null
+
+  const criteria = {}
+  if (species) criteria.species = species
+  if (rarity) criteria.rarity = rarity
+  if (eye) criteria.eye = eye
+  if (hat) criteria.hat = hat
+  if (shiny) criteria.shiny = true
+  if (Object.keys(criteria).length === 0) criteria.rarity = 'legendary'
+
+  // Step 2: Generate new salt and search
+  const newSalt = generateNewSalt()
+  console.log(c(ESC.dim, `\n  ${L === 'zh' ? '新 SALT' : 'New SALT'}: ${newSalt}`))
+
+  const parts = []
+  if (criteria.shiny) parts.push('✨')
+  if (criteria.rarity) parts.push(criteria.rarity)
+  if (criteria.species) parts.push(`${SPECIES_EMOJI[criteria.species]} ${criteria.species}`)
+  if (criteria.eye) parts.push(`eye:${criteria.eye}`)
+  if (criteria.hat) parts.push(`hat:${criteria.hat}`)
+  console.log(c(ESC.bold, `\n  ${t('s_target')} ${parts.join(' ')}\n`))
+
+  const results = searchWithSalt(newSalt, criteria, 5_000_000)
+  if (results.length === 0) {
+    console.log(c(ESC.red + ESC.bold, `\n  ${t('s_no_match')}\n`))
+    return
+  }
+
+  const best = results[results.length - 1]
+  console.log(c(ESC.bold + ESC.green, `\n  ════════════════════════════════════`))
+  console.log(c(ESC.bold + ESC.green, `  ${t('s_best')}`))
+  console.log(c(ESC.bold + ESC.green, `  ════════════════════════════════════`))
+  console.log(formatBuddy(best.buddy, best.uid))
+
+  // Step 3: Confirm and apply
+  const confirmMsg = L === 'zh'
+    ? `应用此宠物? 将修改二进制文件并重签名 [Y/n]:`
+    : `Apply? Will patch binary and re-sign [Y/n]:`
+  if (!(await confirm(confirmMsg, true))) {
+    console.log(c(ESC.dim, `\n  ${L === 'zh' ? '已取消。' : 'Cancelled.'}\n`))
+    return
+  }
+
+  // Backup
+  const bakPath = binPath + '.pre-salt-patch'
+  if (!existsSync(bakPath)) {
+    copyFileSync(binPath, bakPath)
+    console.log(c(ESC.dim, `  ${L === 'zh' ? '备份' : 'Backup'}: ${bakPath}`))
+  }
+
+  // Patch SALT
+  try {
+    const count = patchBinarySalt(binPath, detected.salt, newSalt)
+    console.log(c(ESC.green, `  ${L === 'zh' ? '✓ SALT 已替换' : '✓ SALT replaced'}: ${detected.salt} → ${newSalt} (${count} ${L === 'zh' ? '处' : 'locations'})`))
+  } catch (e) {
+    console.log(c(ESC.red, `  ✗ ${e.message}\n`))
+    return
+  }
+
+  // Re-sign (macOS)
+  if (process.platform === 'darwin') {
+    if (resignBinary(binPath)) {
+      console.log(c(ESC.green, `  ${L === 'zh' ? '✓ Ad-hoc 重签名成功' : '✓ Ad-hoc re-signed successfully'}`))
+    } else {
+      console.log(c(ESC.red, `  ${L === 'zh' ? '✗ 重签名失败。手动运行:' : '✗ Re-sign failed. Run manually:'}`))
+      console.log(c(ESC.cyan, `    codesign --force --sign - "${binPath}"`))
+    }
+  }
+
+  // Write userID + clear companion
+  const cfg = readConfig() || {}
+  if (existsSync(CONFIG_PATH)) copyFileSync(CONFIG_PATH, CONFIG_PATH + `.bak.${Date.now()}`)
+  cfg.userID = best.uid
+  delete cfg.companion
+  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+
+  console.log(c(ESC.green + ESC.bold, `\n  ${L === 'zh' ? '✓ 完成! 重启 Claude Code → /buddy' : '✓ Done! Restart Claude Code → /buddy'}`))
+  console.log(c(ESC.dim, `  ${L === 'zh' ? '恢复原版' : 'Restore'}: cp "${bakPath}" "${binPath}"${process.platform === 'darwin' ? ` && codesign --force --sign - "${binPath}"` : ''}\n`))
+}
+
 async function interactiveMode() {
   banner()
 
   while (true) {
     const menuItems = [
       t('menu_search'), t('menu_check'), t('menu_diy'), t('menu_patch'),
-      t('menu_gallery'), t('menu_selftest'), t('menu_lang'), t('menu_exit'),
+      t('menu_native'), t('menu_gallery'), t('menu_selftest'), t('menu_lang'), t('menu_exit'),
     ]
     const choice = await select(t('menu_title'), menuItems)
 
@@ -858,23 +1106,27 @@ async function interactiveMode() {
         await interactiveDiy()
         await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
         break
-      case 3: // Patch full customize
+      case 3: // Patch full customize (npm)
         await interactivePatch()
         await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
         break
-      case 4: // Gallery
+      case 4: // Native binary patch
+        await interactiveNativePatch()
+        await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
+        break
+      case 5: // Gallery
         interactiveGallery()
         await ask(`  ${c(ESC.dim, t('press_enter'))} `)
         break
-      case 5: // Selftest
+      case 6: // Selftest
         interactiveSelftest()
         await ask(`  ${c(ESC.dim, t('press_enter'))} `)
         break
-      case 6: // Language
+      case 7: // Language
         L = await pickLang()
         banner()
         break
-      case 7: // Exit
+      case 8: // Exit
       default:
         console.log(''); return
     }
