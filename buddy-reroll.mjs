@@ -523,6 +523,10 @@ async function interactiveSearch() {
       const customPers = customName ? await ask(`  ${c(ESC.magenta, '✏️')} ${t('diy_personality')} `) : ''
       const soul = (customName || customPers) ? { name: customName, personality: customPers } : null
       doApply(best.uid, soul)
+
+      // Auto-detect if patches are needed and apply silently
+      await autoFixPatches()
+
       console.log(c(ESC.green + ESC.bold, `  ${t('si_applied')}\n`))
     }
   } else {
@@ -1151,6 +1155,46 @@ async function interactiveNativePatch() {
 
   console.log(c(ESC.green + ESC.bold, `\n  ${L === 'zh' ? '✓ 完成! 重启 Claude Code → /buddy' : '✓ Done! Restart Claude Code → /buddy'}`))
   console.log(c(ESC.dim, `  ${L === 'zh' ? '恢复原版' : 'Restore'}: cp "${bakPath}" "${binPath}"${process.platform === 'darwin' ? ` && codesign --force --sign - "${binPath}"` : ''}\n`))
+}
+
+// ══════════════════════════════════════════════════════════
+//  Auto-fix: silently apply missing patches after search→apply
+// ══════════════════════════════════════════════════════════
+
+async function autoFixPatches() {
+  const cliPath = findCliJs()
+  const binPath = findNativeBinary()
+
+  if (cliPath) {
+    // npm install — apply buddy unlock + telemetry bypass if missing
+    let changed = false
+    const bakPath = cliPath + '.original'
+    if (!existsSync(bakPath)) copyFileSync(cliPath, bakPath)
+
+    if (checkBuddyUnlock(cliPath) === 'unpatched') {
+      if (applyBuddyUnlock(cliPath)) {
+        console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '/buddy 已自动解锁' : '/buddy auto-unlocked'}`))
+        changed = true
+      }
+    }
+    if (checkTelePatch(cliPath) === 'unpatched') {
+      if (applyTelePatch(cliPath)) {
+        console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '气泡反应已自动解锁' : 'Speech bubbles auto-unlocked'}`))
+        changed = true
+      }
+    }
+    // Env misconfig warning
+    const envWarn = detectEnvMisconfig()
+    if (envWarn) console.log(c(ESC.yellow, `  ${envWarn}`))
+  } else if (binPath) {
+    // native install — check if buddy unlock is needed
+    const hasBuddyCheck = NATIVE_BUDDY_RE.test(readFileSync(binPath).toString('ascii'))
+    if (hasBuddyCheck) {
+      console.log(c(ESC.yellow, `\n  ${L === 'zh'
+        ? '⚠ 检测到 native 安装，/buddy 可能对第三方 API 用户不可用。\n  运行菜单 🔓 Patch & Customize 解锁。'
+        : '⚠ Native install detected. /buddy may be blocked for 3P API users.\n  Run 🔓 Patch & Customize from the menu to unlock.'}`))
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════
