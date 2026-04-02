@@ -628,6 +628,36 @@ function findCliJs() {
   return null
 }
 
+// Detect misconfigured env vars (中转站 users who set BEDROCK/VERTEX/FOUNDRY unnecessarily)
+function detectEnvMisconfig() {
+  const cfg = readConfig() || {}
+  // Check settings files for env
+  const settingsPaths = [
+    join(homedir(), '.claude', 'settings.json'),
+    join(process.cwd(), '.claude', 'settings.json'),
+  ]
+  let envVars = { ...process.env }
+  for (const sp of settingsPaths) {
+    try {
+      const s = JSON.parse(readFileSync(sp, 'utf8'))
+      if (s.env) Object.assign(envVars, s.env)
+    } catch {}
+  }
+
+  const hasBaseUrl = !!envVars.ANTHROPIC_BASE_URL
+  const hasBedrock = envVars.CLAUDE_CODE_USE_BEDROCK === '1' || envVars.CLAUDE_CODE_USE_BEDROCK === 'true'
+  const hasVertex = envVars.CLAUDE_CODE_USE_VERTEX === '1' || envVars.CLAUDE_CODE_USE_VERTEX === 'true'
+  const hasFoundry = envVars.CLAUDE_CODE_USE_FOUNDRY === '1' || envVars.CLAUDE_CODE_USE_FOUNDRY === 'true'
+  const cloudVars = [hasBedrock && 'CLAUDE_CODE_USE_BEDROCK', hasVertex && 'CLAUDE_CODE_USE_VERTEX', hasFoundry && 'CLAUDE_CODE_USE_FOUNDRY'].filter(Boolean)
+
+  if (hasBaseUrl && cloudVars.length > 0) {
+    return L === 'zh'
+      ? `⚠ 检测到 ANTHROPIC_BASE_URL (中转站) 同时设置了 ${cloudVars.join(', ')}。\n  中转站用户不需要这些变量！请从 settings.json 中删除它们，buddy 就能正常使用。`
+      : `⚠ Detected ANTHROPIC_BASE_URL (proxy) alongside ${cloudVars.join(', ')}.\n  Proxy users don't need these! Remove them from settings.json and buddy will work.`
+  }
+  return null
+}
+
 const PATCH_PATTERN_BEFORE = /if\(!(\w)\)return;let\{bones:(\w)\}=\w+\(\w+\(\)\);return\{\.\.\.\1,\.\.\.\2\}/
 const PATCH_PATTERN_AFTER = /if\(!(\w)\)return;let\{bones:(\w)\}=\w+\(\w+\(\)\);return\{\.\.\.\2,\.\.\.\1\}/
 
@@ -713,59 +743,54 @@ async function interactivePatch() {
   }
   console.log(c(ESC.dim, `  cli.js: ${cliPath}\n`))
 
-  const status = checkPatchStatus(cliPath)
-  if (status === 'patched') {
-    console.log(c(ESC.green, `  ${t('patch_already')}`))
-  } else if (status === 'unpatched') {
-    if (!(await confirm(t('patch_confirm'), true))) return
-    // Backup
+  // Detect misconfigured 中转站 users
+  const envWarnings = detectEnvMisconfig()
+  if (envWarnings) console.log(c(ESC.yellow, `  ${envWarnings}\n`))
+
+  // Auto-detect what needs patching
+  const spreadStatus = checkPatchStatus(cliPath)
+  const teleStatus = checkTelePatch(cliPath)
+  const buddyStatus = checkBuddyUnlock(cliPath)
+
+  const todo = []
+  if (spreadStatus === 'unpatched') todo.push(L === 'zh' ? '属性自定义 (spread swap)' : 'Custom attributes (spread swap)')
+  if (teleStatus === 'unpatched') todo.push(L === 'zh' ? '气泡反应解锁 (遥测绕过)' : 'Speech bubbles (telemetry bypass)')
+  if (buddyStatus === 'unpatched') todo.push(L === 'zh' ? '/buddy 解锁 (第三方API/关遥测用户)' : '/buddy unlock (3P API / telemetry-off users)')
+
+  // Show status
+  if (spreadStatus === 'patched') console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '属性自定义' : 'Custom attributes'}`))
+  if (teleStatus === 'patched') console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '气泡反应' : 'Speech bubbles'}`))
+  if (buddyStatus === 'patched') console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '/buddy 解锁' : '/buddy unlocked'}`))
+
+  if (todo.length === 0) {
+    console.log(c(ESC.green + ESC.bold, `\n  ${L === 'zh' ? '✓ 所有补丁已应用!' : '✓ All patches already applied!'}`))
+  } else {
+    console.log(c(ESC.bold, `\n  ${L === 'zh' ? '将自动应用以下补丁:' : 'Will auto-apply:'}`))
+    for (const item of todo) console.log(c(ESC.cyan, `    • ${item}`))
+
+    if (!(await confirm(`\n  ${L === 'zh' ? '确认? [Y/n]:' : 'Confirm? [Y/n]:'}`, true))) return
+
+    // Backup once
     const bakPath = cliPath + '.original'
     if (!existsSync(bakPath)) {
       copyFileSync(cliPath, bakPath)
       console.log(c(ESC.dim, `  ${t('patch_backup', bakPath)}`))
     }
-    if (applyPatch(cliPath)) {
-      console.log(c(ESC.green + ESC.bold, `  ${t('patch_ok')}`))
-      console.log(c(ESC.dim, `  ${t('patch_restore', bakPath, cliPath)}\n`))
-    } else {
-      console.log(c(ESC.red, `  ${t('patch_fail')}\n`))
-      return
-    }
-  } else {
-    console.log(c(ESC.red, `  ${t('patch_fail')}\n`))
-    return
-  }
 
-  // Optional: telemetry bypass for speech bubbles
-  const teleStatus = checkTelePatch(cliPath)
-  if (teleStatus === 'patched') {
-    console.log(c(ESC.green, `  ${L === 'zh' ? '✓ 气泡反应已解锁 (遥测检查已跳过)' : '✓ Speech bubbles unlocked (telemetry check bypassed)'}`))
-  } else if (teleStatus === 'unpatched') {
-    const teleQ = L === 'zh'
-      ? '解锁宠物气泡反应? (关闭遥测的用户需要此补丁) [y/N]:'
-      : 'Unlock buddy speech bubbles? (needed if telemetry is off) [y/N]:'
-    if (await confirm(teleQ, false)) {
-      if (applyTelePatch(cliPath)) {
-        console.log(c(ESC.green, `  ${L === 'zh' ? '✓ 气泡反应已解锁!' : '✓ Speech bubbles unlocked!'}`))
-      } else {
-        console.log(c(ESC.yellow, `  ${L === 'zh' ? '✗ 未找到遥测检查代码' : '✗ Telemetry check pattern not found'}`))
-      }
+    // Apply all needed patches
+    if (spreadStatus === 'unpatched') {
+      if (applyPatch(cliPath)) console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '属性自定义已启用' : 'Custom attributes enabled'}`))
+      else console.log(c(ESC.yellow, `  ✗ ${L === 'zh' ? '属性自定义补丁失败' : 'Custom attributes patch failed'}`))
     }
-  }
-
-  // Optional: buddy unlock for third-party API users
-  const buddyStatus = checkBuddyUnlock(cliPath)
-  if (buddyStatus === 'patched') {
-    console.log(c(ESC.green, `  ${t('patch_buddy_done')}`))
-  } else if (buddyStatus === 'unpatched') {
-    console.log(c(ESC.dim, `\n${t('patch_buddy_desc')}`))
-    if (await confirm(t('patch_buddy_q'), false)) {
-      if (applyBuddyUnlock(cliPath)) {
-        console.log(c(ESC.green, `  ${t('patch_buddy_ok')}`))
-      } else {
-        console.log(c(ESC.yellow, `  ${L === 'zh' ? '✗ 未找到 buddy 检查代码' : '✗ Buddy check pattern not found'}`))
-      }
+    if (teleStatus === 'unpatched') {
+      if (applyTelePatch(cliPath)) console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '气泡反应已解锁' : 'Speech bubbles unlocked'}`))
+      else console.log(c(ESC.yellow, `  ✗ ${L === 'zh' ? '气泡反应补丁失败' : 'Speech bubbles patch failed'}`))
     }
+    if (buddyStatus === 'unpatched') {
+      if (applyBuddyUnlock(cliPath)) console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '/buddy 已解锁' : '/buddy unlocked'}`))
+      else console.log(c(ESC.yellow, `  ✗ ${L === 'zh' ? '/buddy 解锁失败' : '/buddy unlock failed'}`))
+    }
+    console.log(c(ESC.dim, `\n  ${L === 'zh' ? '恢复原版' : 'Restore'}: cp "${bakPath}" "${cliPath}"`))
   }
 
   // Now offer full customization
