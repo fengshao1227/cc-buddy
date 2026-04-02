@@ -104,6 +104,7 @@ const I = {
   p_unk_buddy:  { en:'⚠ /buddy unlock: cli.js format changed, skipped',zh:'⚠ /buddy 解锁: cli.js 格式已变，跳过' },
   p_unk_tele:   { en:'⚠ Speech bubbles: cli.js format changed, skipped',zh:'⚠ 气泡反应: cli.js 格式已变，跳过' },
   n_skip:       { en:'⚠ Native binary: SALT not found, patching skipped. Custom buddy may not take effect.',zh:'⚠ 原生二进制: 未找到 SALT，跳过补丁。自定义宠物可能不生效。' },
+  tip_override:  { en:'💡 Tip: edit ~/.claude.json → "companionOverride" to fine-tune any attribute anytime.',zh:'💡 提示: 编辑 ~/.claude.json → "companionOverride" 可随时微调任意属性。' },
 }
 function t(k,...a){const m=I[k]?.[L]||I[k]?.['en']||k;return a.length?m.replace(/\{(\d+)\}/g,(_,i)=>a[+i]??''):m}
 
@@ -349,7 +350,8 @@ async function interactiveSearch(){
   else if(mode==='native'&&bin&&newSalt&&nSalt){nativePatchAll(bin,nSalt.salt,newSalt);writeConfig(best.uid,best.buddy,soul)}
   else{if(mode==='native')console.log(c(E.y,`  ${t('n_skip')}`));writeConfig(best.uid,best.buddy,soul)}
 
-  console.log(c(E.g+E.b,`\n  ${t('si_done')}\n`))
+  console.log(c(E.g+E.b,`\n  ${t('si_done')}`))
+  console.log(c(E.d,`  ${t('tip_override')}\n`))
 }
 
 // ── Interactive: Check ───────────────────────────────────
@@ -420,7 +422,7 @@ async function main(){
   switch(args.cmd){
     case'search':cliSearch(args.f,args.o);break
     case'check':banner();if(args.o.uid){console.log(c(E.b,`  ${t('chk_cur')}`));console.log(fmt(roll(args.o.uid),args.o.uid))}else interactiveCheck();break
-    case'apply':banner();if(!args.o.uid){console.log(c(E.r,'  Usage: apply <userID>\n'));break};chkVer()!=='outdated'&&writeConfig(args.o.uid,roll(args.o.uid));break
+    case'apply':banner();if(!args.o.uid){console.log(c(E.r,'  Usage: apply <userID>\n'));break};if(chkVer()!=='outdated'){writeConfig(args.o.uid,roll(args.o.uid));console.log(c(E.d,`  ${t('tip_override')}`))}break
     case'gallery':banner();interactiveGallery();break
     case'selftest':banner();interactiveSelftest();break
     case'lang':await pickLang();break
