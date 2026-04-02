@@ -1153,52 +1153,246 @@ async function interactiveNativePatch() {
   console.log(c(ESC.dim, `  ${L === 'zh' ? '恢复原版' : 'Restore'}: cp "${bakPath}" "${binPath}"${process.platform === 'darwin' ? ` && codesign --force --sign - "${binPath}"` : ''}\n`))
 }
 
+// ══════════════════════════════════════════════════════════
+//  Unified Patch — auto-detect install type, apply all
+// ══════════════════════════════════════════════════════════
+
+async function interactiveUnifiedPatch() {
+  const title = L === 'zh' ? '🔓 一键 Patch + 自定义宠物' : '🔓 One-Click Patch & Customize'
+  console.log(c(ESC.bold, `\n  ${title}\n`))
+
+  // Detect env misconfig
+  const envWarnings = detectEnvMisconfig()
+  if (envWarnings) console.log(c(ESC.yellow, `  ${envWarnings}\n`))
+
+  // Auto-detect: npm or native?
+  const cliPath = findCliJs()
+  const binPath = findNativeBinary()
+  let mode = null // 'npm' | 'native'
+
+  if (cliPath && binPath) {
+    // Both installed — check which `claude` runs
+    try {
+      const which = execSync('which claude', { timeout: 3000, encoding: 'utf8' }).trim()
+      const real = realpathSync(which)
+      mode = (real.includes('node_modules') || real.endsWith('.js')) ? 'npm' : 'native'
+    } catch { mode = 'npm' }
+    console.log(c(ESC.dim, `  ${L === 'zh' ? '检测到两种安装' : 'Both installs found'}: npm + native`))
+    console.log(c(ESC.dim, `  ${L === 'zh' ? '当前活跃' : 'Active'}: ${mode}\n`))
+  } else if (cliPath) {
+    mode = 'npm'
+  } else if (binPath) {
+    mode = 'native'
+  } else {
+    console.log(c(ESC.red, `  ${L === 'zh' ? '✗ 未找到 Claude Code 安装。' : '✗ No Claude Code installation found.'}`))
+    console.log(c(ESC.dim, `  npm: npm i -g @anthropic-ai/claude-code`))
+    console.log(c(ESC.dim, `  native: https://cli.anthropic.com\n`))
+    return
+  }
+
+  console.log(c(ESC.cyan, `  ${L === 'zh' ? '安装方式' : 'Install type'}: ${mode === 'npm' ? 'npm (cli.js)' : 'native (binary)'}`))
+  if (mode === 'npm') console.log(c(ESC.dim, `  ${cliPath}`))
+  else console.log(c(ESC.dim, `  ${binPath}`))
+
+  // ── npm flow ──
+  if (mode === 'npm') {
+    const spreadStatus = checkPatchStatus(cliPath)
+    const teleStatus = checkTelePatch(cliPath)
+    const buddyStatus = checkBuddyUnlock(cliPath)
+
+    // Show current status
+    const done = [], todo = []
+    if (spreadStatus === 'patched') done.push(L === 'zh' ? '属性自定义' : 'Custom attributes')
+    else todo.push(L === 'zh' ? '属性自定义 (spread swap)' : 'Custom attributes (spread swap)')
+    if (teleStatus === 'patched') done.push(L === 'zh' ? '气泡反应' : 'Speech bubbles')
+    else todo.push(L === 'zh' ? '气泡反应 (遥测绕过)' : 'Speech bubbles (telemetry bypass)')
+    if (buddyStatus === 'patched') done.push(L === 'zh' ? '/buddy 解锁' : '/buddy unlock')
+    else todo.push(L === 'zh' ? '/buddy 解锁 (第三方用户)' : '/buddy unlock (3P users)')
+
+    for (const d of done) console.log(c(ESC.green, `  ✓ ${d}`))
+
+    if (todo.length > 0) {
+      console.log(c(ESC.bold, `\n  ${L === 'zh' ? '将自动应用:' : 'Will auto-apply:'}`))
+      for (const item of todo) console.log(c(ESC.cyan, `    • ${item}`))
+      if (!(await confirm(`\n  ${L === 'zh' ? '确认? [Y/n]:' : 'Confirm? [Y/n]:'}`, true))) return
+
+      const bakPath = cliPath + '.original'
+      if (!existsSync(bakPath)) { copyFileSync(cliPath, bakPath); console.log(c(ESC.dim, `  Backup: ${bakPath}`)) }
+
+      if (spreadStatus === 'unpatched') {
+        console.log(c(applyPatch(cliPath) ? ESC.green : ESC.yellow, `  ${applyPatch(cliPath) || '✓'} ${L === 'zh' ? '属性自定义' : 'Custom attributes'}`))
+        // Re-read needed since file changed — but applyPatch already wrote, re-check
+      }
+      if (teleStatus === 'unpatched') {
+        console.log(c(applyTelePatch(cliPath) ? ESC.green : ESC.yellow, `  ✓ ${L === 'zh' ? '气泡反应' : 'Speech bubbles'}`))
+      }
+      if (buddyStatus === 'unpatched') {
+        console.log(c(applyBuddyUnlock(cliPath) ? ESC.green : ESC.yellow, `  ✓ ${L === 'zh' ? '/buddy 解锁' : '/buddy unlock'}`))
+      }
+    }
+
+    console.log(c(ESC.green + ESC.bold, `\n  ${L === 'zh' ? '✓ 补丁就绪!' : '✓ Patches ready!'}`))
+    console.log(c(ESC.dim, `  ${L === 'zh' ? 'npm 支持完全自定义属性值。' : 'npm install supports full attribute customization.'}\n`))
+
+    // Offer customization
+    const custQ = L === 'zh' ? '现在自定义宠物属性? [Y/n]:' : 'Customize pet attributes now? [Y/n]:'
+    if (await confirm(custQ, true)) {
+      const cfg = readConfig() || {}
+      const stored = cfg.companion || {}
+
+      const spItems = SPECIES.map(s => `${SPECIES_EMOJI[s]}  ${s}`)
+      const spIdx = await select(t('patch_species'), spItems, true)
+      const species = spIdx >= 0 ? SPECIES[spIdx] : stored.species
+
+      const rarItems = RARITIES.map(r => `${c(RARITY_CLR[r], RARITY_STARS[r])} ${r}`)
+      const rarIdx = await select(t('patch_rarity'), rarItems, true)
+      const rarity = rarIdx >= 0 ? RARITIES[rarIdx] : stored.rarity
+
+      const eyeItems = EYES.map(e => `  ${e}`)
+      const eyeIdx = await select(t('patch_eye'), eyeItems, true)
+      const eye = eyeIdx >= 0 ? EYES[eyeIdx] : stored.eye
+
+      const hatItems = HATS.map(h => `${HAT_EMOJI[h]}  ${h}`)
+      const hatIdx = await select(t('patch_hat'), hatItems, true)
+      const hat = hatIdx >= 0 ? HATS[hatIdx] : stored.hat
+
+      const shinyAns = await ask(`  ${t('patch_shiny_q')} `)
+      const shiny = shinyAns.toLowerCase() === 'y' ? true : shinyAns.toLowerCase() === 'n' ? false : stored.shiny
+
+      const stats = { ...(stored.stats || {}) }
+      for (const sn of STAT_NAMES) {
+        const cur = stats[sn] ?? '?'
+        const ans = await ask(`  ${t('patch_stat', `${sn} [${cur}]`)} `)
+        if (ans !== '') { const v = parseInt(ans); if (!isNaN(v)) stats[sn] = Math.max(0, Math.min(100, v)) }
+      }
+
+      const nameAns = await ask(`\n  ${c(ESC.magenta, '✏️')} ${t('diy_name')} `)
+      const persAns = await ask(`  ${c(ESC.magenta, '✏️')} ${t('diy_personality')} `)
+
+      const companion = { name: nameAns || stored.name || 'Buddy', personality: persAns || stored.personality || 'A mysterious creature.', hatchedAt: stored.hatchedAt || Date.now() }
+      if (species) companion.species = species
+      if (rarity) companion.rarity = rarity
+      if (eye) companion.eye = eye
+      if (hat !== undefined) companion.hat = hat
+      if (shiny !== undefined) companion.shiny = shiny
+      if (Object.keys(stats).length) companion.stats = stats
+
+      if (existsSync(CONFIG_PATH)) copyFileSync(CONFIG_PATH, CONFIG_PATH + `.bak.${Date.now()}`)
+      cfg.companion = companion
+      writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+      console.log(c(ESC.green + ESC.bold, `\n  ${t('patch_written')}\n`))
+    }
+    return
+  }
+
+  // ── native flow ──
+  const detected = detectSaltInFile(binPath)
+  if (!detected) {
+    console.log(c(ESC.red, `  ${L === 'zh' ? '✗ 未检测到 SALT。' : '✗ No SALT detected.'}\n`))
+    return
+  }
+  console.log(c(ESC.dim, `  SALT: ${detected.salt}`))
+  console.log(c(ESC.dim, `  ${L === 'zh' ? '⚠ native 不支持自定义属性值，但可以刷物种/稀有度/眼睛/帽子/闪光' : '⚠ Native cannot customize stat values, but can reroll species/rarity/eye/hat/shiny'}\n`))
+
+  // Choose pet
+  console.log(c(ESC.bold, `  ${L === 'zh' ? '选择你想要的宠物:' : 'Choose your desired pet:'}\n`))
+  const spItems = SPECIES.map(s => `${SPECIES_EMOJI[s]}  ${s}`)
+  const spIdx = await select(L === 'zh' ? '物种:' : 'Species:', spItems, true)
+  const species = spIdx >= 0 ? SPECIES[spIdx] : null
+  const rarItems = [L === 'zh' ? '自动 (最高稀有度)' : 'Auto (highest rarity)', ...RARITIES.map(r => `${c(RARITY_CLR[r], RARITY_STARS[r])} ${r}`)]
+  const rarIdx = await select(L === 'zh' ? '稀有度:' : 'Rarity:', rarItems)
+  const rarity = rarIdx > 0 ? RARITIES[rarIdx - 1] : null
+  const eyeItems = EYES.map(e => `  ${e}`)
+  const eyeIdx = await select(L === 'zh' ? '眼睛:' : 'Eyes:', eyeItems, true)
+  const eye = eyeIdx >= 0 ? EYES[eyeIdx] : null
+  const hatItems = HATS.map(h => `${HAT_EMOJI[h]}  ${h}`)
+  const hatIdx = await select(L === 'zh' ? '帽子:' : 'Hat:', hatItems, true)
+  const hat = hatIdx >= 0 ? HATS[hatIdx] : null
+  const shinyAns = await ask(`\n  ${L === 'zh' ? '闪光? [y/N]:' : 'Shiny? [y/N]:'} `)
+  const shiny = shinyAns.toLowerCase().startsWith('y') ? true : null
+
+  const criteria = {}
+  if (species) criteria.species = species
+  if (rarity) criteria.rarity = rarity
+  if (eye) criteria.eye = eye
+  if (hat) criteria.hat = hat
+  if (shiny) criteria.shiny = true
+  if (Object.keys(criteria).length === 0) criteria.rarity = 'legendary'
+
+  const newSalt = generateNewSalt()
+  const parts = []
+  if (criteria.shiny) parts.push('✨')
+  if (criteria.rarity) parts.push(criteria.rarity)
+  if (criteria.species) parts.push(`${SPECIES_EMOJI[criteria.species]} ${criteria.species}`)
+  if (criteria.eye) parts.push(`eye:${criteria.eye}`)
+  if (criteria.hat) parts.push(`hat:${criteria.hat}`)
+  console.log(c(ESC.bold, `\n  ${t('s_target')} ${parts.join(' ')}\n`))
+
+  const results = searchWithSalt(newSalt, criteria, 5_000_000)
+  if (results.length === 0) { console.log(c(ESC.red + ESC.bold, `\n  ${t('s_no_match')}\n`)); return }
+
+  const best = results[results.length - 1]
+  console.log(c(ESC.bold + ESC.green, `\n  ════════════════════════════════════`))
+  console.log(c(ESC.bold + ESC.green, `  ${t('s_best')}`))
+  console.log(c(ESC.bold + ESC.green, `  ════════════════════════════════════`))
+  console.log(formatBuddy(best.buddy, best.uid))
+
+  if (!(await confirm(L === 'zh' ? '应用? 将修改二进制并重签名 [Y/n]:' : 'Apply? Will patch binary and re-sign [Y/n]:', true))) return
+
+  // Backup
+  const bakPath = binPath + '.pre-salt-patch'
+  if (!existsSync(bakPath)) { copyFileSync(binPath, bakPath); console.log(c(ESC.dim, `  Backup: ${bakPath}`)) }
+
+  // Remove codesign
+  if (process.platform === 'darwin') {
+    try { execSync(`codesign --remove-signature "${binPath}"`, { timeout: 10000, stdio: 'pipe' }) } catch {}
+  }
+
+  // Buddy unlock
+  const unlockCount = patchNativeBuddyUnlock(binPath)
+  console.log(c(unlockCount > 0 ? ESC.green : ESC.yellow, `  ${unlockCount > 0 ? '✓' : '⚠'} /buddy ${unlockCount > 0 ? (L === 'zh' ? '已解锁' : 'unlocked') : (L === 'zh' ? '跳过 (已解锁或未找到)' : 'skipped')}`))
+
+  // SALT swap
+  try {
+    const count = patchBinarySalt(binPath, detected.salt, newSalt)
+    console.log(c(ESC.green, `  ✓ SALT: ${detected.salt} → ${newSalt} (${count}x)`))
+  } catch (e) { console.log(c(ESC.red, `  ✗ ${e.message}`)); return }
+
+  // Re-sign
+  if (process.platform === 'darwin') {
+    console.log(c(resignBinary(binPath) ? ESC.green : ESC.red, `  ${resignBinary(binPath) ? '✓' : '✗'} ${L === 'zh' ? '重签名' : 'Re-signed'}`))
+  }
+
+  // Write config
+  const cfg = readConfig() || {}
+  if (existsSync(CONFIG_PATH)) copyFileSync(CONFIG_PATH, CONFIG_PATH + `.bak.${Date.now()}`)
+  cfg.userID = best.uid; delete cfg.companion
+  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+
+  console.log(c(ESC.green + ESC.bold, `\n  ${L === 'zh' ? '✓ 完成! 重启 Claude Code → /buddy' : '✓ Done! Restart Claude Code → /buddy'}`))
+  console.log(c(ESC.dim, `  ${L === 'zh' ? '恢复' : 'Restore'}: cp "${bakPath}" "${binPath}"${process.platform === 'darwin' ? ` && codesign --force --sign - "${binPath}"` : ''}\n`))
+}
+
 async function interactiveMode() {
   banner()
 
   while (true) {
     const menuItems = [
-      t('menu_search'), t('menu_check'), t('menu_diy'), t('menu_patch'),
-      t('menu_native'), t('menu_gallery'), t('menu_selftest'), t('menu_lang'), t('menu_exit'),
+      t('menu_search'), t('menu_check'), t('menu_diy'),
+      L === 'zh' ? '🔓  一键 Patch + 自定义' : '🔓  Patch & Customize',
+      t('menu_gallery'), t('menu_selftest'), t('menu_lang'), t('menu_exit'),
     ]
     const choice = await select(t('menu_title'), menuItems)
 
     switch (choice) {
-      case 0: // Search
-        await interactiveSearch()
-        if (!(await confirm(t('si_again'), true))) continue
-        break
-      case 1: // Check
-        await interactiveCheck()
-        await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
-        break
-      case 2: // DIY name/personality
-        await interactiveDiy()
-        await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
-        break
-      case 3: // Patch full customize (npm)
-        await interactivePatch()
-        await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
-        break
-      case 4: // Native binary patch
-        await interactiveNativePatch()
-        await ask(`\n  ${c(ESC.dim, t('press_enter'))} `)
-        break
-      case 5: // Gallery
-        interactiveGallery()
-        await ask(`  ${c(ESC.dim, t('press_enter'))} `)
-        break
-      case 6: // Selftest
-        interactiveSelftest()
-        await ask(`  ${c(ESC.dim, t('press_enter'))} `)
-        break
-      case 7: // Language
-        L = await pickLang()
-        banner()
-        break
-      case 8: // Exit
-      default:
-        console.log(''); return
+      case 0: await interactiveSearch(); if (!(await confirm(t('si_again'), true))) continue; break
+      case 1: await interactiveCheck(); await ask(`\n  ${c(ESC.dim, t('press_enter'))} `); break
+      case 2: await interactiveDiy(); await ask(`\n  ${c(ESC.dim, t('press_enter'))} `); break
+      case 3: await interactiveUnifiedPatch(); await ask(`\n  ${c(ESC.dim, t('press_enter'))} `); break
+      case 4: interactiveGallery(); await ask(`  ${c(ESC.dim, t('press_enter'))} `); break
+      case 5: interactiveSelftest(); await ask(`  ${c(ESC.dim, t('press_enter'))} `); break
+      case 6: L = await pickLang(); banner(); break
+      case 7: default: console.log(''); return
     }
   }
 }
@@ -1273,7 +1467,7 @@ async function main() {
     case 'apply': banner(); if(!args.options.userId){console.log(c(ESC.red,'  Usage: apply <userID>\n'));break}; checkVersion()!=='outdated'&&doApply(args.options.userId); break
     case 'gallery': banner(); interactiveGallery(); break
     case 'selftest': banner(); interactiveSelftest(); break
-    case 'patch': await interactivePatch(); break
+    case 'patch': await interactiveUnifiedPatch(); break
     case 'lang': await pickLang(); break
     case 'help': default:
       if (Object.keys(args.filters).length > 0) cliSearch(args.filters, args.options)
