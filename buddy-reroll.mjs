@@ -925,6 +925,38 @@ function resignBinary(filePath) {
   }
 }
 
+// Buddy unlock for native binary: replace H_7() with same-length return!0
+// Pattern: function XX(){if(YY()!=="firstParty")return!1;if(ZZ())return!1;let V=new Date;return V.getFullYear()>2026||V.getFullYear()===2026&&V.getMonth()>=3}
+const NATIVE_BUDDY_RE = /function (\w+)\(\)\{if\(\w+\(\)!=="firstParty"\)return!1;if\(\w+\(\)\)return!1;let (\w)=new Date;return \2\.getFullYear\(\)>2026\|\|\2\.getFullYear\(\)===2026&&\2\.getMonth\(\)>=3\}/
+
+function patchNativeBuddyUnlock(filePath) {
+  const buf = readFileSync(filePath)
+  const content = buf.toString('ascii')
+  const m = content.match(NATIVE_BUDDY_RE)
+  if (!m) return 0
+
+  const orig = m[0]
+  const funcName = m[1]
+  const pad = orig.length - `function ${funcName}(){return!0}`.length
+  if (pad < 0) return 0
+  const replacement = `function ${funcName}(){return!0${';'.repeat(pad)}}`
+
+  const oldBytes = Buffer.from(orig, 'utf-8')
+  const newBytes = Buffer.from(replacement, 'utf-8')
+  if (oldBytes.length !== newBytes.length) return 0
+
+  let count = 0, pos = 0
+  while (true) {
+    const idx = buf.indexOf(oldBytes, pos)
+    if (idx === -1) break
+    newBytes.copy(buf, idx)
+    count++
+    pos = idx + 1
+  }
+  if (count > 0) writeFileSync(filePath, buf)
+  return count
+}
+
 function searchWithSalt(salt, criteria, limit = 5_000_000) {
   // Search using specific salt (for native binary patching)
   const results = [], start = Date.now()
@@ -1051,6 +1083,19 @@ async function interactiveNativePatch() {
   if (!existsSync(bakPath)) {
     copyFileSync(binPath, bakPath)
     console.log(c(ESC.dim, `  ${L === 'zh' ? '备份' : 'Backup'}: ${bakPath}`))
+  }
+
+  // Remove codesign first (macOS)
+  if (process.platform === 'darwin') {
+    try { execSync(`codesign --remove-signature "${binPath}"`, { timeout: 10000, stdio: 'pipe' }) } catch {}
+  }
+
+  // Buddy unlock: patch H_7() to always return true
+  const unlockCount = patchNativeBuddyUnlock(binPath)
+  if (unlockCount > 0) {
+    console.log(c(ESC.green, `  ${L === 'zh' ? '✓ /buddy 已解锁' : '✓ /buddy unlocked'} (${unlockCount} ${L === 'zh' ? '处' : 'locations'})`))
+  } else {
+    console.log(c(ESC.yellow, `  ${L === 'zh' ? '⚠ /buddy 解锁跳过 (未找到门禁函数或已解锁)' : '⚠ /buddy unlock skipped (check function not found or already patched)'}`))
   }
 
   // Patch SALT
