@@ -12,7 +12,7 @@ import { createInterface } from 'node:readline'
 import { execSync } from 'node:child_process'
 
 // ── Constants ────────────────────────────────────────────
-const VERSION = '3.0.11'
+const VERSION = '3.0.12'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
 const PREF_PATH = join(homedir(), '.claude-buddy.json')
