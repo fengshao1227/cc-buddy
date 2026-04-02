@@ -24,7 +24,7 @@ import { execSync } from 'node:child_process'
 //  Constants
 // ══════════════════════════════════════════════════════════
 
-const VERSION = '2.0.0'
+const VERSION = '2.3.0'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
 const PREF_PATH = join(homedir(), '.claude-buddy.json')
@@ -172,6 +172,11 @@ const I = {
   patch_tele_q:    { en: 'Unlock speech bubbles? (bypasses telemetry check) [y/N]:', zh: '解锁气泡反应? (跳过遥测检查) [y/N]:' },
   patch_tele_ok:   { en: '✓ Speech bubbles unlocked!',         zh: '✓ 气泡反应已解锁!' },
   patch_tele_done: { en: '✓ Speech bubbles already unlocked.', zh: '✓ 气泡反应已解锁。' },
+  // Buddy unlock (3P API)
+  patch_buddy_q:   { en: 'Enable /buddy for third-party API users? [y/N]:', zh: '为第三方 API 用户启用 /buddy? [y/N]:' },
+  patch_buddy_ok:  { en: '✓ /buddy unlocked for all users!',   zh: '✓ /buddy 已为所有用户解锁!' },
+  patch_buddy_done:{ en: '✓ /buddy already unlocked.',         zh: '✓ /buddy 已解锁。' },
+  patch_buddy_desc:{ en: '  Removes firstParty + telemetry + date check from /buddy command.\n  Third-party API users (Bedrock/Vertex/custom base URL) can hatch & view buddy.', zh: '  移除 /buddy 命令的官方账号、遥测和日期检查。\n  第三方 API 用户 (Bedrock/Vertex/自定义 base URL) 可以孵化和查看宠物。' },
   // Hash mode
   hash_detected:   { en: 'Hash: {0}',                         zh: 'Hash: {0}' },
   hash_fnv:        { en: 'FNV-1a (npm install detected)',      zh: 'FNV-1a (检测到 npm 安装)' },
@@ -668,6 +673,33 @@ function applyTelePatch(cliPath) {
   return true
 }
 
+// Buddy unlock: enable /buddy for third-party API users
+// Patches the availability check function to always return true
+// Original: function X(){if(T()!=="firstParty")return!1;if(W())return!1;let q=new Date;return q.getFullYear()>2026||...}
+// Patched:  function X(){return!0}
+const BUDDY_UNLOCK_PATTERN = /function (\w+)\(\)\{if\(\w+\(\)!=="firstParty"\)return!1;if\(\w+\(\)\)return!1;let \w+=new Date;return \w+\.getFullYear\(\)>2026\|\|\w+\.getFullYear\(\)===2026&&\w+\.getMonth\(\)>=3\}/
+const BUDDY_UNLOCK_PATCHED = /function (\w+)\(\)\{return!0\}/
+
+function checkBuddyUnlock(cliPath) {
+  const content = readFileSync(cliPath, 'utf8')
+  // Check if original pattern exists (unpatched)
+  if (BUDDY_UNLOCK_PATTERN.test(content)) return 'unpatched'
+  // Check if the pattern was already replaced — look for the isHidden reference
+  // If original is gone, assume patched (or version mismatch)
+  if (content.includes('"firstParty")return!1')) return 'unknown' // some other firstParty check
+  return 'patched'
+}
+
+function applyBuddyUnlock(cliPath) {
+  let content = readFileSync(cliPath, 'utf8')
+  const match = content.match(BUDDY_UNLOCK_PATTERN)
+  if (!match) return false
+  const funcName = match[1]
+  content = content.replace(BUDDY_UNLOCK_PATTERN, `function ${funcName}(){return!0}`)
+  writeFileSync(cliPath, content, 'utf8')
+  return true
+}
+
 async function interactivePatch() {
   console.log(c(ESC.bold, `\n  ${t('patch_title')}\n`))
   console.log(c(ESC.dim, `  ${t('patch_desc')}\n`))
@@ -716,6 +748,21 @@ async function interactivePatch() {
         console.log(c(ESC.green, `  ${L === 'zh' ? '✓ 气泡反应已解锁!' : '✓ Speech bubbles unlocked!'}`))
       } else {
         console.log(c(ESC.yellow, `  ${L === 'zh' ? '✗ 未找到遥测检查代码' : '✗ Telemetry check pattern not found'}`))
+      }
+    }
+  }
+
+  // Optional: buddy unlock for third-party API users
+  const buddyStatus = checkBuddyUnlock(cliPath)
+  if (buddyStatus === 'patched') {
+    console.log(c(ESC.green, `  ${t('patch_buddy_done')}`))
+  } else if (buddyStatus === 'unpatched') {
+    console.log(c(ESC.dim, `\n${t('patch_buddy_desc')}`))
+    if (await confirm(t('patch_buddy_q'), false)) {
+      if (applyBuddyUnlock(cliPath)) {
+        console.log(c(ESC.green, `  ${t('patch_buddy_ok')}`))
+      } else {
+        console.log(c(ESC.yellow, `  ${L === 'zh' ? '✗ 未找到 buddy 检查代码' : '✗ Buddy check pattern not found'}`))
       }
     }
   }
