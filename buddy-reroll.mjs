@@ -449,6 +449,31 @@ function doSearch(criteria, limit=5_000_000) {
 // ══════════════════════════════════════════════════════════
 
 async function interactiveSearch() {
+  // Auto-detect install type upfront
+  const cliPath = findCliJs()
+  const binPath = findNativeBinary()
+  let installMode = null
+  if (cliPath) {
+    try {
+      const which = execSync('which claude', { timeout: 3000, encoding: 'utf8' }).trim()
+      const real = realpathSync(which)
+      installMode = (real.includes('node_modules') || real.endsWith('.js')) ? 'npm' : (binPath ? 'native' : 'npm')
+    } catch { installMode = 'npm' }
+  } else if (binPath) {
+    installMode = 'native'
+  }
+
+  // For native: detect current SALT + prepare new one
+  let nativeSalt = null, newSalt = null
+  if (installMode === 'native' && binPath) {
+    nativeSalt = detectSaltInFile(binPath)
+    if (nativeSalt) newSalt = generateNewSalt()
+  }
+
+  // Env misconfig warning
+  const envWarn = detectEnvMisconfig()
+  if (envWarn) console.log(c(ESC.yellow, `  ${envWarn}\n`))
+
   // 1. Species
   const spItems = SPECIES.map(s => `${SPECIES_EMOJI[s]}  ${s}`)
   const spIdx = await select(t('si_species'), spItems, true)
@@ -473,10 +498,6 @@ async function interactiveSearch() {
   const shinyAns = await ask(`\n  ${t('si_shiny')} `)
   const shiny = shinyAns.toLowerCase().startsWith('y') ? true : null
 
-  // 6. Limit
-  const limAns = await ask(`  ${t('si_limit')} `)
-  const limit = parseInt(limAns) || 5_000_000
-
   // Build criteria
   const criteria = {}
   if (species) criteria.species = species
@@ -484,10 +505,7 @@ async function interactiveSearch() {
   if (eye) criteria.eye = eye
   if (hat) criteria.hat = hat
   if (shiny) criteria.shiny = true
-
-  if (Object.keys(criteria).length === 0) {
-    criteria.rarity = 'legendary' // default: find any legendary
-  }
+  if (Object.keys(criteria).length === 0) criteria.rarity = 'legendary'
 
   // Build display
   const parts = []
@@ -496,11 +514,15 @@ async function interactiveSearch() {
   if (criteria.species) parts.push(`${SPECIES_EMOJI[criteria.species]} ${criteria.species}`)
   if (criteria.eye) parts.push(`eye:${criteria.eye}`)
   if (criteria.hat) parts.push(`hat:${criteria.hat}`)
-
   console.log(`\n  ${c(ESC.bold, `${t('s_target')} ${parts.join(' ')}`)}\n`)
-  if (!IS_BUN) console.log(c(ESC.yellow, `  ${t('s_node_warn')}\n`))
 
-  const results = doSearch(criteria, limit)
+  // Search — use correct method for install type
+  let results
+  if (installMode === 'native' && newSalt) {
+    results = searchWithSalt(newSalt, criteria, 5_000_000)
+  } else {
+    results = doSearch(criteria, 5_000_000)
+  }
 
   if (results.length === 0) {
     console.log(c(ESC.red + ESC.bold, `\n  ${t('s_no_match')}\n`))
@@ -513,26 +535,68 @@ async function interactiveSearch() {
   console.log(c(ESC.bold + ESC.green, '  ════════════════════════════════════'))
   console.log(formatBuddy(best.buddy, best.uid))
 
-  // Ask to apply
-  if (await confirm(t('si_apply_ask'), true)) {
-    const verStatus = checkVersion()
-    if (verStatus !== 'outdated') {
-      // DIY soul
-      console.log('')
-      const customName = await ask(`  ${c(ESC.magenta, '✏️')} ${t('diy_name')} `)
-      const customPers = customName ? await ask(`  ${c(ESC.magenta, '✏️')} ${t('diy_personality')} `) : ''
-      const soul = (customName || customPers) ? { name: customName, personality: customPers } : null
-      doApply(best.uid, soul)
-
-      // Auto-detect if patches are needed and apply silently
-      await autoFixPatches()
-
-      console.log(c(ESC.green + ESC.bold, `  ${t('si_applied')}\n`))
-    }
-  } else {
-    console.log(c(ESC.dim, `\n  ${t('si_skipped')}`))
-    console.log(c(ESC.cyan, `  node buddy-reroll.mjs apply ${best.uid}\n`))
+  // Apply
+  if (!(await confirm(t('si_apply_ask'), true))) {
+    console.log(c(ESC.dim, `\n  ${t('si_skipped')}\n`))
+    return
   }
+
+  // Custom name
+  console.log('')
+  const customName = await ask(`  ${c(ESC.magenta, '✏️')} ${t('diy_name')} `)
+  const customPers = customName ? await ask(`  ${c(ESC.magenta, '✏️')} ${t('diy_personality')} `) : ''
+  const soul = (customName || customPers) ? { name: customName, personality: customPers } : null
+
+  // ── npm: apply patches + write config ──
+  if (installMode === 'npm' && cliPath) {
+    const bakPath = cliPath + '.original'
+    if (!existsSync(bakPath)) copyFileSync(cliPath, bakPath)
+
+    // Auto-apply all missing patches silently
+    if (checkPatchStatus(cliPath) === 'unpatched' && applyPatch(cliPath))
+      console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '属性自定义已启用' : 'Custom attributes enabled'}`))
+    if (checkBuddyUnlock(cliPath) === 'unpatched' && applyBuddyUnlock(cliPath))
+      console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '/buddy 已解锁' : '/buddy unlocked'}`))
+    if (checkTelePatch(cliPath) === 'unpatched' && applyTelePatch(cliPath))
+      console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '气泡反应已解锁' : 'Speech bubbles unlocked'}`))
+
+    doApply(best.uid, soul)
+
+  // ── native: SALT swap + buddy unlock + resign + write config ──
+  } else if (installMode === 'native' && binPath && newSalt && nativeSalt) {
+    const bakPath = binPath + '.pre-salt-patch'
+    if (!existsSync(bakPath)) { copyFileSync(binPath, bakPath); console.log(c(ESC.dim, `  Backup: ${bakPath}`)) }
+
+    if (process.platform === 'darwin') {
+      try { execSync(`codesign --remove-signature "${binPath}"`, { timeout: 10000, stdio: 'pipe' }) } catch {}
+    }
+
+    const unlockCount = patchNativeBuddyUnlock(binPath)
+    if (unlockCount > 0) console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '/buddy 已解锁' : '/buddy unlocked'}`))
+
+    try {
+      patchBinarySalt(binPath, nativeSalt.salt, newSalt)
+      console.log(c(ESC.green, `  ✓ SALT: ${nativeSalt.salt} → ${newSalt}`))
+    } catch (e) { console.log(c(ESC.red, `  ✗ ${e.message}`)); return }
+
+    if (process.platform === 'darwin') {
+      if (resignBinary(binPath)) console.log(c(ESC.green, `  ✓ ${L === 'zh' ? '重签名成功' : 'Re-signed'}`))
+    }
+
+    // Write config
+    const cfg = readConfig() || {}
+    if (existsSync(CONFIG_PATH)) copyFileSync(CONFIG_PATH, CONFIG_PATH + `.bak.${Date.now()}`)
+    cfg.userID = best.uid
+    if (soul) cfg.companion = { name: soul.name || '', personality: soul.personality || '', hatchedAt: Date.now() }
+    else delete cfg.companion
+    writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+
+  // ── fallback: just write config ──
+  } else {
+    doApply(best.uid, soul)
+  }
+
+  console.log(c(ESC.green + ESC.bold, `\n  ${t('si_applied')}\n`))
 }
 
 async function interactiveCheck() {
@@ -1423,7 +1487,6 @@ async function interactiveMode() {
   while (true) {
     const menuItems = [
       t('menu_search'), t('menu_check'), t('menu_diy'),
-      L === 'zh' ? '🔓  一键 Patch + 自定义' : '🔓  Patch & Customize',
       t('menu_gallery'), t('menu_selftest'), t('menu_lang'), t('menu_exit'),
     ]
     const choice = await select(t('menu_title'), menuItems)
@@ -1432,11 +1495,10 @@ async function interactiveMode() {
       case 0: await interactiveSearch(); if (!(await confirm(t('si_again'), true))) continue; break
       case 1: await interactiveCheck(); await ask(`\n  ${c(ESC.dim, t('press_enter'))} `); break
       case 2: await interactiveDiy(); await ask(`\n  ${c(ESC.dim, t('press_enter'))} `); break
-      case 3: await interactiveUnifiedPatch(); await ask(`\n  ${c(ESC.dim, t('press_enter'))} `); break
-      case 4: interactiveGallery(); await ask(`  ${c(ESC.dim, t('press_enter'))} `); break
-      case 5: interactiveSelftest(); await ask(`  ${c(ESC.dim, t('press_enter'))} `); break
-      case 6: L = await pickLang(); banner(); break
-      case 7: default: console.log(''); return
+      case 3: interactiveGallery(); await ask(`  ${c(ESC.dim, t('press_enter'))} `); break
+      case 4: interactiveSelftest(); await ask(`  ${c(ESC.dim, t('press_enter'))} `); break
+      case 5: L = await pickLang(); banner(); break
+      case 6: default: console.log(''); return
     }
   }
 }
