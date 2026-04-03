@@ -142,7 +142,7 @@ function hFnv(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i)
 let HASH_MODE='wyhash'
 const IS_WIN=process.platform==='win32'
 function whichBin(name){try{const cmd=IS_WIN?`where ${name}`:`which ${name}`;return execSync(cmd,{timeout:3000,encoding:'utf8'}).trim().split(/\r?\n/)[0]}catch{return null}}
-function detectHash(){const i=process.argv.indexOf('--hash');if(i!==-1){const v=(process.argv[i+1]||'').toLowerCase();return(v==='fnv'||v==='fnv1a')?'fnv1a':'wyhash'}try{const d=JSON.parse(readFileSync(PREF_PATH,'utf8'));if(d.hashMode)return d.hashMode}catch{}try{const w=whichBin('claude');if(w){const r=realpathSync(w);if(r.includes('node_modules')||r.endsWith('.js'))return'fnv1a'}}catch{}return'wyhash'}
+function detectHash(){const i=process.argv.indexOf('--hash');if(i!==-1){const v=(process.argv[i+1]||'').toLowerCase();return(v==='fnv'||v==='fnv1a')?'fnv1a':'wyhash'}try{const d=JSON.parse(readFileSync(PREF_PATH,'utf8'));if(d.hashMode)return d.hashMode}catch{}try{const w=whichBin('claude');if(w){const r=realpathSync(w);if(r.includes('node_modules')||r.endsWith('.js'))return'fnv1a'}}catch{}if(findCliJs())return'fnv1a';return'wyhash'}
 function hash(s){return HASH_MODE==='fnv1a'?hFnv(s):hWy(s)}
 
 function prng(seed){let a=seed>>>0;return()=>{a|=0;a=(a+0x6d2b79f5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296}}
