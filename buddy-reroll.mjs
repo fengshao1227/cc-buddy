@@ -12,7 +12,7 @@ import { createInterface } from 'node:readline'
 import { execSync } from 'node:child_process'
 
 // ── Constants ────────────────────────────────────────────
-const VERSION = '3.0.12'
+const VERSION = '3.0.15'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
 const PREF_PATH = join(homedir(), '.claude-buddy.json')
@@ -104,7 +104,7 @@ const I = {
   p_unk_buddy:  { en:'⚠ /buddy unlock: cli.js format changed, skipped',zh:'⚠ /buddy 解锁: cli.js 格式已变，跳过' },
   p_unk_tele:   { en:'⚠ Speech bubbles: cli.js format changed, skipped',zh:'⚠ 气泡反应: cli.js 格式已变，跳过' },
   n_skip:       { en:'⚠ Native binary: SALT not found, patching skipped. Custom buddy may not take effect.',zh:'⚠ 原生二进制: 未找到 SALT，跳过补丁。自定义宠物可能不生效。' },
-  tip_override:  { en:'💡 Tip: edit ~/.claude.json → "companionOverride" to fine-tune any attribute anytime.',zh:'💡 提示: 编辑 ~/.claude.json → "companionOverride" 可随时微调任意属性。' },
+  tip_override:  { en:'💡 Tip: edit ~/.claude.json → "companionOverride" to fine-tune species/rarity/eye/hat/shiny/stats/customFace/customSprite anytime.',zh:'💡 提示: 编辑 ~/.claude.json → "companionOverride" 可随时微调物种/稀有度/眼睛/帽子/闪光/属性/自定义表情/精灵图。' },
 }
 function t(k,...a){const m=I[k]?.[L]||I[k]?.['en']||k;return a.length?m.replace(/\{(\d+)\}/g,(_,i)=>a[+i]??''):m}
 
@@ -234,37 +234,80 @@ const P_TELE=/if\(\w+\(\)!=="firstParty"\)return null;if\((\w+)\(\)\)return null
 const P_BUDDY=/function (\w+)\(\)\{if\(\w+\(\)!=="firstParty"\)return!1;if\(\w+\(\)\)return!1;let \w+=new Date;return \w+\.getFullYear\(\)>2026\|\|\w+\.getFullYear\(\)===2026&&\w+\.getMonth\(\)>=3\}/
 const P_BUDDY_DONE=/function \w+\(\)\{return!0\}/
 const P_TELE_DONE=/if\(\w+\(\)!=="firstParty"\)return null;let \w+=\w+\(\)/
+const P_RENDER_SPRITE=/let (\w+)=(\w+)\[(\w+)\.species\],/
+const P_SPRITE_COUNT=/function (\w+)\((\w+)\)\{return (\w+)\[\2\]\.length\}/
+const P_RENDER_FACE=/let (\w+)=(\w+)\.eye;switch\(\2\.species\)\{/
 
 function npmPatchAll(cliPath){
   const bak=cliPath+'.original';if(!existsSync(bak))copyFileSync(cliPath,bak)
   let f=readFileSync(cliPath,'utf8'),changed=false
+  const applied=[]
   // 1. Custom attributes: inject companionOverride support into getCompanion()
+  let cfgCall=null
   const gm=f.match(P_GETCOMP)||f.match(P_GETCOMP_S)
   if(gm){
     const[full,fn,cv,cc,bv,rc]=gm
+    cfgCall=cc
     const patched=`function ${fn}(){let ${cv}=${cc}.companion;if(!${cv})return;let{bones:${bv}}=${rc};`+
       `var _ccbov=${cc}.companionOverride;`+
       `if(_ccbov){`+
         `if(_ccbov.stats)${bv}.stats=Object.assign({},${bv}.stats,_ccbov.stats);`+
         `var _ccbst=${bv}.stats;`+
         `Object.assign(${bv},_ccbov);`+
-        `${bv}.stats=_ccbov.stats?Object.assign({},_ccbst,_ccbov.stats):_ccbst`+
+        `${bv}.stats=_ccbov.stats?Object.assign({},_ccbst,_ccbov.stats):_ccbst;`+
+        `delete ${bv}.customSprite;delete ${bv}.customFace`+
       `}`+
       `return{...${cv},...${bv}}}`
-    f=f.replace(full,patched);changed=true
+    f=f.replace(full,patched);changed=true;applied.push('getCompanion')
     console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义 (companionOverride)':'Custom attributes (companionOverride)'}`))
   } else if(f.includes('_ccbov')&&f.includes('companionOverride')){
+    applied.push('getCompanion')
     console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义 (已生效)':'Custom attributes (already applied)'}`))
+    const ccm=f.match(/_ccbov=(\w+\(\))\.companionOverride/);if(ccm)cfgCall=ccm[1]
   } else console.log(c(E.y,`  ${t('p_unk_attr')}`))
   // 2. Buddy unlock
-  if(P_BUDDY.test(f)){const m=f.match(P_BUDDY);if(m){f=f.replace(P_BUDDY,`function ${m[1]}(){return!0}`);changed=true;console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁':'/buddy unlocked'}`))}}
-  else if(P_BUDDY_DONE.test(f))console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁 (已生效)':'/buddy unlocked (already applied)'}`))
+  if(P_BUDDY.test(f)){const m=f.match(P_BUDDY);if(m){f=f.replace(P_BUDDY,`function ${m[1]}(){return!0}`);changed=true;applied.push('buddyLive');console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁':'/buddy unlocked'}`))}}
+  else if(P_BUDDY_DONE.test(f)){applied.push('buddyLive');console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁 (已生效)':'/buddy unlocked (already applied)'}`))}
   else console.log(c(E.y,`  ${t('p_unk_buddy')}`))
   // 3. Telemetry bypass
-  if(P_TELE.test(f)){const m=f.match(P_TELE);if(m){f=f.replace(P_TELE,(x,tf,lp)=>x.replace(`if(${tf}())return null;${lp}`,lp));changed=true;console.log(c(E.g,`  ✓ ${L==='zh'?'气泡反应':'Speech bubbles'}`))}}
-  else if(P_TELE_DONE.test(f))console.log(c(E.g,`  ✓ ${L==='zh'?'气泡反应 (已生效)':'Speech bubbles (already applied)'}`))
+  if(P_TELE.test(f)){const m=f.match(P_TELE);if(m){f=f.replace(P_TELE,(x,tf,lp)=>x.replace(`if(${tf}())return null;${lp}`,lp));changed=true;applied.push('buddyReact');console.log(c(E.g,`  ✓ ${L==='zh'?'气泡反应':'Speech bubbles'}`))}}
+  else if(P_TELE_DONE.test(f)){applied.push('buddyReact');console.log(c(E.g,`  ✓ ${L==='zh'?'气泡反应 (已生效)':'Speech bubbles (already applied)'}`))}
   else console.log(c(E.y,`  ${t('p_unk_tele')}`))
-  if(changed)writeFileSync(cliPath,f,'utf8')
+  // 4. renderSprite: customSprite fallback
+  if(cfgCall){
+    const rsm=f.match(P_RENDER_SPRITE)
+    if(rsm&&!f.includes('_csp&&Array')){
+      const[full,frV,bodies,bonesP3]=rsm
+      const rep=`var _csp=${cfgCall}.companionOverride;let ${frV}=(_csp&&Array.isArray(_csp.customSprite)&&_csp.customSprite.length>0)?_csp.customSprite:${bodies}[${bonesP3}.species],`
+      f=f.replace(full,rep);changed=true;applied.push('renderSprite')
+      console.log(c(E.g,`  ✓ ${L==='zh'?'自定义精灵图 (customSprite)':'Custom sprite (customSprite)'}`))
+    } else if(f.includes('customSprite')){applied.push('renderSprite');console.log(c(E.g,`  ✓ ${L==='zh'?'自定义精灵图 (已生效)':'Custom sprite (already applied)'}`))}
+  }
+  // 5. spriteFrameCount: customSprite length
+  if(cfgCall){
+    const scm=f.match(P_SPRITE_COUNT)
+    if(scm&&scm[0].length<90&&!f.includes('_csp3&&Array')){
+      const[full,fn2,sp,bodies2]=scm
+      f=f.replace(full,`function ${fn2}(${sp}){var _csp3=${cfgCall}.companionOverride;if(_csp3&&Array.isArray(_csp3.customSprite)&&_csp3.customSprite.length>0)return _csp3.customSprite.length;return ${bodies2}[${sp}].length}`);changed=true;applied.push('spriteFrameCount')
+      console.log(c(E.g,`  ✓ ${L==='zh'?'精灵帧计数 (customSprite)':'Sprite frame count (customSprite)'}`))
+    } else if(f.includes('_csp3&&Array'))applied.push('spriteFrameCount')
+  }
+  // 6. renderFace: customFace fallback
+  if(cfgCall){
+    const rfm=f.match(P_RENDER_FACE)
+    if(rfm&&!f.includes('_cf4&&typeof')){
+      const[full,eyeV,bonesP4]=rfm
+      f=f.replace(full,`var _cf4=${cfgCall}.companionOverride;if(_cf4&&typeof _cf4.customFace==="string")return _cf4.customFace.replaceAll("{E}",${bonesP4}.eye);${full}`);changed=true;applied.push('renderFace')
+      console.log(c(E.g,`  ✓ ${L==='zh'?'自定义表情 (customFace)':'Custom face (customFace)'}`))
+    } else if(f.includes('customFace')){applied.push('renderFace');console.log(c(E.g,`  ✓ ${L==='zh'?'自定义表情 (已生效)':'Custom face (already applied)'}`))}
+  }
+  // C. Control switches: inject globalThis.__buddyConfig status marker
+  const CTRL_RE=/\n;globalThis\.__buddyConfig=\{[^;]+\};\/\*__ccbuddy__\*\/\n/
+  f=f.replace(CTRL_RE,'')
+  const unlocked=applied.includes('buddyLive'),customized=applied.includes('getCompanion')
+  f+=`\n;globalThis.__buddyConfig={unlocked:${unlocked},customized:${customized},version:"3.0",patches:${JSON.stringify(applied)},tool:"cc-buddy"};/*__ccbuddy__*/\n`
+  changed=true
+  writeFileSync(cliPath,f,'utf8')
 }
 
 // ── Native patches ───────────────────────────────────────
