@@ -1,185 +1,145 @@
-# cc-buddy 🎰
+# cc-buddy
 
-**Interactive pet reroller for Claude Code `/buddy`. Pick your dream pet.**
-
-Claude Code `/buddy` 宠物重铸器 — 自选物种、稀有度、眼睛、帽子、闪光。
+Custom buddy toolkit for Claude Code `/buddy`. Full control over your companion's appearance, stats, and sprite.
 
 ```bash
 npx cc-buddy
 ```
 
-Zero dependencies. Node.js 16+ / Bun. Bilingual: English / 中文.
+Node.js 16+ / Bun. Cross-platform. Bilingual (EN / ZH).
+
+> 我的开源项目已链接认可 [LINUX DO](https://linux.do/) 社区
 
 ---
 
-## Features
+## What it does
 
-- **Interactive mode** — step-by-step species, rarity, eyes, hat, shiny selection
-- **CLI mode** — pass flags directly for scripting / power users
-- **Cross-runtime** — pure JS wyhash implementation, verified identical to Bun.hash
-- **OAuth support** — auto-handles `accountUuid` → `userID` fallback
-- **Auto backup** — config backed up with timestamp before every write
-- **Version check** — warns if Claude Code < 2.1.89
-- **Bilingual** — English / 中文, saved on first run
+Claude Code generates your `/buddy` pet deterministically from a hash. This tool patches `cli.js` to support a `companionOverride` config key, letting you set species, rarity, eyes, hat, shiny, stats, custom face, and custom sprite — all from an interactive menu.
 
-## Quick Start
+Patching is AST-based (acorn), so it survives minifier renames across Claude Code versions.
+
+## Usage
 
 ```bash
 npx cc-buddy
 ```
 
-First run asks you to pick a language, then drops you into the main menu:
-
 ```
-What would you like to do?
-  [1] 🔍  Search for a buddy
-  [2] 👀  Check current buddy
-  [3] 📋  Species gallery
-  [4] 🧪  Self-test hash
-  [5] 🌐  Switch language
-  [6] 👋  Exit
+[1] Customize buddy        ← pick species, rarity, stats, sprite...
+[2] Search & apply buddy   ← hash brute-force (advanced)
+[3] Check current buddy
+[4] Species gallery
+[5] Self-test hash
+[6] Switch language
+[7] Exit
 ```
 
-Search walks you through each filter. Hit Enter to skip any step:
+The customize menu covers everything:
 
 ```
-Pick a species:
-  [1] 🦆 duck  [2] 🪿 goose  [3] 🫧 blob  [4] 🐱 cat  [5] 🐉 dragon ...
+Customize Current Buddy
+cat | legendary | eye:✦ | hat:crown | Nimbus
 
-Pick rarity:
-  [1] Auto (find highest)  [2] common ... [6] legendary
-
-🎯 Searching: ✨ legendary 🐉 dragon
-→ Found: ★★★★★ legendary dragon ✨ @ 164,030
-
-✓ BEST RESULT
-  🐉 DRAGON
-  ★★★★★ legendary ✨ SHINY!
-  Eyes: ◉  |  Hat: 😇 halo
-
-Apply this buddy to your config? [Y/n]:
+ [1] Name/Personality
+ [2] Species
+ [3] Rarity
+ [4] Eyes
+ [5] Hat
+ [6] Shiny
+ [7] Stats (0-100 per stat)
+ [8] Custom face expression
+ [9] Custom sprite (15 presets + paste JSON)
+[10] Back
 ```
 
-## CLI Mode
+## Sprite presets
+
+15 built-in animated sprites (3 frames each):
+
+| Preset | Face | Preset | Face |
+|--------|------|--------|------|
+| Catgirl | `( ✦ w ✦ )` | Bear | `( ✦ ᴥ ✦ )` |
+| Fox | `( ✦ ω ✦)` | Devil | `( ✦ v ✦ )` |
+| Bunny | `( ✦ · ✦ )` | Alien | `/ ✦ ✦ \` |
+| Pikachu | `( ✦ ▽ ✦ )` | Slime | `/ ✦ ✦ \` |
+| Kirby | `( ✦ ▽ ✦ )` | Totoro | `( ✦ △ ✦ )` |
+| Cthulhu | `( ✦ }{ ✦ )` | Miku | `( ✦ ∀ ✦ )` |
+| Panda | `( ✦ _ ✦ )` | Bat | `(✦ w ✦)` |
+| CXK | `(◉ _ ◉)` | | |
+
+You can also paste custom sprite JSON directly in the menu.
+
+## CLI
 
 ```bash
-# Search for shiny legendary dragon with wizard hat
-npx cc-buddy search -s dragon -r legendary --hat wizard --eye '✦' --shiny
-
-# Check current buddy
+npx cc-buddy search -s dragon -r legendary --shiny
 npx cc-buddy check
-
-# Apply a userID
 npx cc-buddy apply <userID>
-
-# Species gallery
+npx cc-buddy --check-patches
 npx cc-buddy gallery
-
-# Verify hash implementation
-npx cc-buddy selftest
-
-# Switch language
-npx cc-buddy lang
 ```
 
-### CLI Flags
+## Manual config
 
-| Flag | Description |
-|------|-------------|
-| `--species, -s` | Species name |
-| `--rarity, -r` | `common` / `uncommon` / `rare` / `epic` / `legendary` |
-| `--eye, -e` | Eye style: `·` `✦` `×` `◉` `@` `°` |
-| `--hat` | `none` `crown` `tophat` `propeller` `halo` `wizard` `beanie` `tinyduck` |
-| `--shiny` | Require shiny |
-| `--limit, -l` | Max attempts (default: 5,000,000) |
-| `--lang` | `en` or `zh` |
-| `--json` | JSON output |
-
-## Species
-
-| | | | | | |
-|---|---|---|---|---|---|
-| 🦆 duck | 🪿 goose | 🫧 blob | 🐱 cat | 🐉 dragon | 🐙 octopus |
-| 🦉 owl | 🐧 penguin | 🐢 turtle | 🐌 snail | 👻 ghost | 🦎 axolotl |
-| 🦫 capybara | 🌵 cactus | 🤖 robot | 🐰 rabbit | 🍄 mushroom | 🐈 chonk |
-
-## Rarity
-
-| Rarity | Probability |
-|--------|------------|
-| ★ common | 60% |
-| ★★ uncommon | 25% |
-| ★★★ rare | 10% |
-| ★★★★ epic | 4% |
-| ★★★★★ legendary | 1% |
-
-**Shiny**: 1% chance on any rarity. **Hats**: common pets never have hats.
-
-## Manual Fine-Tuning
-
-After using the search, you can manually tweak any attribute by editing `~/.claude.json`:
+Power users can edit `~/.claude.json` directly:
 
 ```jsonc
 {
-  "companionOverride": {   // ← add this block
-    "species": "dragon",   // any of the 18 species
-    "rarity": "legendary", // common/uncommon/rare/epic/legendary
-    "eye": "✦",            // · ✦ × ◉ @ °
-    "hat": "wizard",       // none/crown/tophat/propeller/halo/wizard/beanie/tinyduck
+  "companion": {
+    "name": "Foxfire",
+    "personality": "A mischievous fox who smells memory leaks",
+    "hatchedAt": 1743465600000
+  },
+  "companionOverride": {
+    "species": "fox",
+    "rarity": "legendary",
+    "eye": "◉",
+    "hat": "wizard",
     "shiny": true,
-    "stats": {             // override individual stats (0-100)
-      "CHAOS": 99,
-      "WISDOM": 95
-    }
+    "stats": { "DEBUGGING": 100, "PATIENCE": 100, "CHAOS": 0, "WISDOM": 100, "SNARK": 0 },
+    "customFace": "({E}ω{E})",
+    "customSprite": [
+      ["            ", "   /\\_/\\    ", "  ( {E} ω {E})  ", "  /|    |\\  ", " (_|    |_) "],
+      ["            ", "   /\\_/\\    ", "  ( {E} ω {E})  ", "  /|    |\\  ", " (_|    |_)~"],
+      ["    ~ ~     ", "   /\\_/\\    ", "  ( {E} ω {E})  ", "  /|    |\\  ", " (_|    |_) "]
+    ]
   }
 }
 ```
 
-You only need to include the fields you want to change. Omitted fields keep their hash-computed values. Stats are merged individually — override one without losing the rest.
+Only include fields you want to override. Restart Claude Code after editing.
 
-Works on both **npm** and **native binary** installs. Restart Claude Code after editing.
+### Custom sprite format
 
-## How It Works
+- JSON array, 1-3 frames, each frame = 5 strings
+- ~12 chars per line, equal width
+- `{E}` = eye placeholder (replaced at runtime)
+- Line 0 = hat slot (blank in frame 0-1, effects in frame 2)
+- Frame 0 = idle, 1 = fidget, 2 = sparkle
 
-Claude Code's `/buddy` pet system has two layers:
+## How it works
 
-- **Bones** — species, rarity, eyes, hat, stats, shiny. Deterministically generated from `hash(userID + SALT)` at runtime. Never stored.
-- **Soul** — name and personality. Generated by the model, stored in `~/.claude.json`.
+Uses acorn to parse Claude Code's minified `cli.js`, walks the AST to find 6 functions by structural signature, and injects override support:
 
-This tool:
-1. Searches random `userID` values until one hashes to your desired pet
-2. Patches Claude Code to support `companionOverride` (custom bone attributes)
-3. Writes both the `userID` and overrides to your config — triple-layer guarantee
+| Target | Patch |
+|--------|-------|
+| `isBuddyLive()` | Remove access gates, unlock `/buddy` |
+| `buddyReactAPI()` | Remove essentialTraffic check, enable speech bubbles |
+| `getCompanion()` | Read `companionOverride` from config, merge into bones |
+| `renderSprite()` | Fall back to `customSprite` if set |
+| `spriteFrameCount()` | Return `customSprite.length` |
+| `renderFace()` | Fall back to `customFace` if set |
 
-### Technical Details
+Claude Code auto-updates replace `cli.js`. Re-run `npx cc-buddy` after each update.
 
-- Claude Code is a Bun binary → uses `Bun.hash()` (wyhash algorithm)
-- This tool includes a **pure JavaScript wyhash implementation**, cross-verified to produce identical output to `Bun.hash`
-- Works with both Node.js and Bun — results are identical
-- **npm install**: injects `companionOverride` reader into `getCompanion()` — version-stable, survives minifier renames
-- **Native binary**: same-length spread swap + SALT replacement + ad-hoc re-sign
-- OAuth users: tool removes `accountUuid` so the buddy seed falls back to `userID`. OAuth login stays intact (auth uses `accessToken`, not the UUID)
+## Species (18)
+
+duck, goose, blob, cat, dragon, octopus, owl, penguin, turtle, snail, ghost, axolotl, capybara, cactus, robot, rabbit, mushroom, chonk
 
 ## Requirements
 
-- **Claude Code >= 2.1.89** (first version with `/buddy`)
+- Claude Code >= 2.1.89
 - Node.js >= 16 or Bun
-- Tool auto-detects version and warns if outdated
-
-## Install
-
-No install needed:
-
-```bash
-npx cc-buddy
-```
-
-Or install globally:
-
-```bash
-npm i -g cc-buddy
-cc-buddy
-```
 
 ## License
 
@@ -187,103 +147,12 @@ MIT
 
 ---
 
-# 中文说明
+## 中文
 
-## 功能
+工具默认英文，首次运行时可切换到中文。
 
-- **交互式搜索** — 逐步选择物种、稀有度、眼睛、帽子、闪光
-- **CLI 模式** — 支持命令行传参，方便脚本调用
-- **跨运行时** — 纯 JS 实现 wyhash，与 Bun.hash 输出 100% 一致
-- **OAuth 支持** — 正版用户也能刷，自动处理 accountUuid
-- **自动备份** — 写入前自动备份配置，附时间戳
-- **版本检测** — Claude Code < 2.1.89 自动提醒更新
-- **双语** — 中文 / English，首次运行选择，自动记住
+自定义宠物菜单覆盖所有属性（物种/稀有度/眼睛/帽子/闪光/属性/表情/精灵图），15 款精灵图预设可直接选用。高手可以编辑 `~/.claude.json` 的 `companionOverride` 字段。
 
-## 使用
+Claude Code 更新后补丁会丢失，重新跑 `npx cc-buddy` 即可。
 
-```bash
-npx cc-buddy
-```
-
-首次运行选择语言，然后进入主菜单：
-
-```
-你想做什么？
-  [1] 🔍  搜索宠物
-  [2] 👀  查看当前宠物
-  [3] 📋  物种图鉴
-  [4] 🧪  自检 Hash
-  [5] 🌐  切换语言
-  [6] 👋  退出
-```
-
-搜索流程逐步引导，回车跳过任意步骤：
-
-```
-选择物种 (回车跳过):
-  [1] 🦆 duck  [5] 🐉 dragon  [11] 👻 ghost ...
-
-选择稀有度 (回车自动找最好):
-  [1] 自动  [6] legendary
-
-要求闪光? [y/N]: y
-
-🎯 搜索: ✨ legendary 🐉 dragon
-→ 命中: ★★★★★ legendary dragon ✨
-
-将此宠物写入配置? [Y/n]: y
-✓ 配置已更新!
-重启 Claude Code → /buddy
-```
-
-## 手动微调
-
-搜索应用后，你可以直接编辑 `~/.claude.json` 微调任何属性：
-
-```jsonc
-{
-  "companionOverride": {   // ← 加上这个
-    "species": "dragon",   // 18 个物种任选
-    "rarity": "legendary", // common/uncommon/rare/epic/legendary
-    "eye": "✦",            // · ✦ × ◉ @ °
-    "hat": "wizard",       // none/crown/tophat/propeller/halo/wizard/beanie/tinyduck
-    "shiny": true,
-    "stats": {             // 可以只改单项属性 (0-100)
-      "CHAOS": 99,
-      "WISDOM": 95
-    }
-  }
-}
-```
-
-只需写你想改的字段，其余保持 hash 计算值。stats 逐项合并——改一个不丢其他的。
-
-**npm 安装和原生二进制安装都支持**。编辑后重启 Claude Code 即可。
-
-## 原理
-
-Claude Code 的 `/buddy` 宠物系统分两层：
-
-- **Bones（骨架）** — 物种、稀有度、眼睛、帽子、属性、闪光。由 `hash(userID + SALT)` 确定性生成，每次实时计算，不存储。
-- **Soul（灵魂）** — 名字和性格。由模型生成，存储在 `~/.claude.json` 的 `companion` 字段。
-
-本工具：
-1. 搜索随机 userID，找到 hash 出目标宠物的种子
-2. 给 Claude Code 注入 `companionOverride` 支持（自定义骨架属性）
-3. 将 userID 和 override 都写入配置——三重保障
-
-### 技术要点
-
-- Claude Code 是 Bun 打包的二进制，hash 函数使用 `Bun.hash()`（wyhash 算法）
-- 本工具包含纯 JavaScript 的 wyhash 实现，经交叉验证与 `Bun.hash` 输出完全一致
-- Node.js 和 Bun 均可运行，结果相同
-- **npm 安装**：注入 `companionOverride` 读取层到 `getCompanion()`——结构化匹配，不怕版本更新改变量名
-- **原生二进制**：等长 spread swap + SALT 替换 + 重签名
-- OAuth 用户：工具自动移除 `accountUuid`，使宠物种子回退到 `userID` 通道。OAuth 登录不受影响（鉴权使用 `accessToken`）
-
-## 注意事项
-
-- 需要 **Claude Code >= 2.1.89**（`/buddy` 首次可用的版本）
-- 工具自动检测版本，过旧会提示 `claude update`
-- 写入前自动备份配置到 `~/.claude.json.bak.<timestamp>`
-- 建议首次使用 `selftest` 验证 hash 准确性
+> 我的开源项目已链接认可 [LINUX DO](https://linux.do/) 社区

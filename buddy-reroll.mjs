@@ -10,9 +10,11 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createInterface } from 'node:readline'
 import { execSync } from 'node:child_process'
+import * as acorn from 'acorn'
 
 // ── Constants ────────────────────────────────────────────
-const VERSION = '3.0.15'
+const VERSION = '3.1.7'
+const MARKER = '__ccbuddy_v3__'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
 const PREF_PATH = join(homedir(), '.claude-buddy.json')
@@ -24,6 +26,68 @@ const RARITY_W = { common:60, uncommon:25, rare:10, epic:4, legendary:1 }
 const RARITY_RANK = { common:0, uncommon:1, rare:2, epic:3, legendary:4 }
 const EYES = ['·','✦','×','◉','@','°']
 const HATS = ['none','crown','tophat','propeller','halo','wizard','beanie','tinyduck']
+const SPRITE_PRESETS = {
+  neko:{name:{en:'🐱 Catgirl',zh:'🐱 猫耳娘'},face:'({E}ω{E})',sprite:[
+    ['            ','  /\\    /\\  ',' ( {E}  w  {E} )','  |  ♡  |  ','  (______)  '],
+    ['            ','  /\\    /\\  ',' ( {E}  w  {E} )','  |     |  ','  (______)~ '],
+    ['  ♡    ♡   ','  /\\    /\\  ',' ( {E}  w  {E} )','  |  ♡  |  ','  (______)  ']]},
+  fox:{name:{en:'🦊 Fox',zh:'🦊 狐狸'},face:'({E}ω{E})',sprite:[
+    ['            ','   /\\_/\\    ','  ( {E} ω {E})  ','  /|    |\\  ',' (_|    |_) '],
+    ['            ','   /\\_/\\    ','  ( {E} ω {E})  ','  /|    |\\  ',' (_|    |_)~'],
+    ['    ~ ~     ','   /\\_/\\    ','  ( {E} ω {E})  ','  /|    |\\  ',' (_|    |_) ']]},
+  bunny:{name:{en:'🐰 Bunny',zh:'🐰 兔耳娘'},face:'({E}·{E})',sprite:[
+    ['    ||  ||  ','    ||  ||  ',' ( {E}  · {E} ) ','   \\    /   ','    (==)    '],
+    ['    ||  ||  ','    |\\  /|  ',' ( {E}  · {E} ) ','   \\    /   ','    (==)  ~ '],
+    ['   ♡ ♡♡ ♡  ','    ||  ||  ',' ( {E}  · {E} ) ','   \\    /   ','    (==)    ']]},
+  pika:{name:{en:'⚡ Pikachu',zh:'⚡ 皮卡丘'},face:'({E}▽{E})',sprite:[
+    ['            ','  /|    |\\  ',' ( {E}  ▽ {E} )','   (    )  ','    ~~~~    '],
+    ['            ','  /|    |\\  ',' ( {E}  ▽ {E} )','   (    )  ','    ~~~~  ⚡'],
+    ['   ⚡  ⚡   ','  /|    |\\  ',' ( {E}  ▽ {E} )','   (    )  ','    ~~~~    ']]},
+  bear:{name:{en:'🐻 Bear',zh:'🐻 小熊'},face:'({E}ᴥ{E})',sprite:[
+    ['            ','  (\\  /)   ',' ( {E} ᴥ {E} )  ','  />  <\\   ',' (__\\/__) '],
+    ['            ','  (\\  /)   ',' ( {E} ᴥ {E} )  ','  />  <\\   ',' (__\\/__) ~'],
+    ['    z Z     ','  (\\  /)   ',' ( -  ᴥ  - )  ','  />  <\\   ',' (__\\/__) ']]},
+  devil:{name:{en:'😈 Devil',zh:'😈 小恶魔'},face:'{E}v{E}',sprite:[
+    ['   )    (   ','  /\\    /\\  ',' ( {E}  v  {E} )','   \\~~~~/ ^ ','    \\  /    '],
+    ['   )    (   ','  /\\    /\\  ',' ( {E}  v  {E} )','   \\~~~~/ ^ ','    \\  / ~  '],
+    ['   ) ** (   ','  /\\    /\\  ',' ( {E}  v  {E} )','   \\~~~~/ ^ ','    \\  /    ']]},
+  alien:{name:{en:'👽 Alien',zh:'👽 外星人'},face:'{E}_{E}',sprite:[
+    ['            ','   .-""-.   ','  / {E}  {E} \\  ','  |  __  |  ','   \\____/   '],
+    ['            ','   .-""-.   ','  / {E}  {E} \\  ','  |  __  |  ','   \\____/ ~ '],
+    ['   *  . *   ','   .-""-.   ','  / {E}  {E} \\  ','  |  __  |  ','   \\____/   ']]},
+  slime:{name:{en:'🟢 Slime',zh:'🟢 史莱姆'},face:'({E}~{E})',sprite:[
+    ['            ','    ____    ','  / {E}  {E} \\  ','  | ~~~~ |  ','  (______)  '],
+    ['            ','    ____    ','  / {E}  {E} \\  ','  | ~~~~ |  ',' (__________) '],
+    ['    ~ ~     ','    ____    ','  / {E}  {E} \\  ','  | ~~~~ |  ','  (______)  ']]},
+  kirby:{name:{en:'🩷 Kirby',zh:'🩷 卡比'},face:'({E}▽{E})',sprite:[
+    ['            ','   .----.   ','  ( {E} ▽ {E} )  ','  /|    |\\  ','   o    o   '],
+    ['            ','   .----.   ','  ( {E} ▽ {E} )~ ','  /|    |\\  ','   o    o   '],
+    ['    ☆  ☆   ','   .----.   ','  ( {E} ▽ {E} )  ','  /|    |\\  ','   o    o   ']]},
+  totoro:{name:{en:'🌳 Totoro',zh:'🌳 龙猫'},face:'({E}△{E})',sprite:[
+    ['            ','   /~~~~\\   ','  ( {E} △ {E} )  ','  |VVVVVV|  ','  (__)(__)  '],
+    ['            ','   /~~~~\\   ','  ( {E} △ {E} )  ','  |VVVVVV|  ','  (__)(__)~ '],
+    ['    🌂      ','   /~~~~\\   ','  ( {E} △ {E} )  ','  |VVVVVV|  ','  (__)(__)  ']]},
+  cthulhu:{name:{en:'🦑 Cthulhu',zh:'🦑 克苏鲁'},face:'{E}}{E}',sprite:[
+    ['            ','   /\\  /\\   ','  ( {E} }{ {E} ) ','   |/\\/\\|   ','  ~~~~~~~~  '],
+    ['            ','   /\\  /\\   ','  ( {E} }{ {E} ) ','   |\\/\\/|   ','  ~~~~~~~~~ '],
+    ['   * .  *   ','   /\\  /\\   ','  ( {E} }{ {E} ) ','   |/\\/\\|   ','  ~~~~~~~~  ']]},
+  miku:{name:{en:'🎤 Miku',zh:'🎤 初音'},face:'({E}∀{E})',sprite:[
+    ['    ♪   ♪   ',' ]==   ==[ ',' ( {E}  ∀  {E} )','   \\    /   ','    |  |    '],
+    ['     ♪  ♪   ',' ]==   ==[ ',' ( {E}  ∀  {E} )','   \\    /   ','    |  |  ~ '],
+    ['   ♪ ♫ ♪   ',' ]==   ==[ ',' ( {E}  ∀  {E} )','   \\    /   ','    |  |    ']]},
+  panda:{name:{en:'🐼 Panda',zh:'🐼 熊猫'},face:'({E}_{E})',sprite:[
+    ['            ','  ○\\  /○   ','  ( {E}  _ {E} ) ','   \\    /   ','   (====)   '],
+    ['            ','  ○\\  /○   ','  ( {E}  _ {E} ) ','   \\    /   ','   (====) ~ '],
+    ['    🎋      ','  ○\\  /○   ','  ( {E}  _ {E} ) ','   \\    /   ','   (====)   ']]},
+  bat:{name:{en:'🦇 Bat',zh:'🦇 蝙蝠'},face:'{E}w{E}',sprite:[
+    ['  /|    |\\  ',' / |    | \\ ','   ({E} w {E})  ','    \\  /    ','     \\/     '],
+    ['  /|    |\\  ',' / |    | \\ ','   ({E} w {E})  ','    \\  /    ','     \\/   ~ '],
+    [' ~/|    |\\~ ',' / |    | \\ ','   ({E} w {E})  ','    \\  /    ','     \\/     ']]},
+  cxk:{name:{en:'🏀 CXK',zh:'🏀 坤哥'},face:'({E} _ {E})',sprite:[
+    ['            ','  ({E} _ {E})   ','  \\|--|/    ',' / o    \\   ','d        b  '],
+    ['            ',' \\({E} _ {E})/  ','   |--|     ','   |  |     ','  d  b   o  '],
+    ['  ♪    ♫    ','   ({E} _ {E})  ','  \\|--|/    ',' /   o   \\  ','d         b ']]},
+}
 const STATS = ['DEBUGGING','PATIENCE','CHAOS','WISDOM','SNARK']
 const RARITY_FLOOR = { common:5, uncommon:15, rare:25, epic:35, legendary:50 }
 
@@ -47,7 +111,7 @@ const I = {
   menu_title:   { en:'What would you like to do?',       zh:'你想做什么？' },
   menu_search:  { en:'🔍  Search & apply buddy',         zh:'🔍  搜索并应用宠物' },
   menu_check:   { en:'👀  Check current buddy',          zh:'👀  查看当前宠物' },
-  menu_diy:     { en:'✏️   Customize name/personality',   zh:'✏️   自定义名字/性格' },
+  menu_diy:     { en:'✏️   Customize buddy',               zh:'✏️   自定义宠物' },
   menu_gallery: { en:'📋  Species gallery',              zh:'📋  物种图鉴' },
   menu_test:    { en:'🧪  Self-test hash',               zh:'🧪  自检 Hash' },
   menu_lang:    { en:'🌐  Switch language',              zh:'🌐  切换语言' },
@@ -104,6 +168,13 @@ const I = {
   p_unk_buddy:  { en:'⚠ /buddy unlock: cli.js format changed, skipped',zh:'⚠ /buddy 解锁: cli.js 格式已变，跳过' },
   p_unk_tele:   { en:'⚠ Speech bubbles: cli.js format changed, skipped',zh:'⚠ 气泡反应: cli.js 格式已变，跳过' },
   n_skip:       { en:'⚠ Native binary: SALT not found, patching skipped. Custom buddy may not take effect.',zh:'⚠ 原生二进制: 未找到 SALT，跳过补丁。自定义宠物可能不生效。' },
+  p_ast_dl:     { en:'Downloading AST parser...',zh:'正在下载 AST 解析器...' },
+  p_ast_fail:   { en:'✗ AST parse failed',zh:'✗ AST 解析失败' },
+  p_ast_ok:     { en:'✓ All patches applied (AST verified)',zh:'✓ 全部补丁已应用 (AST 验证通过)' },
+  p_ast_v3:     { en:'✓ All patches already applied (v3)',zh:'✓ 全部补丁已生效 (v3)' },
+  p_chk_none:   { en:'✗ No patches found. Run apply to patch.',zh:'✗ 未找到补丁。请执行 apply。' },
+  p_chk_v3:     { en:'✓ v3 AST patches active',zh:'✓ v3 AST 补丁生效中' },
+  p_chk_old:    { en:'⚠ Old patches found. Run apply to upgrade to v3.',zh:'⚠ 发现旧版补丁。请执行 apply 升级到 v3。' },
   tip_override:  { en:'💡 Tip: edit ~/.claude.json → "companionOverride" to fine-tune species/rarity/eye/hat/shiny/stats/customFace/customSprite anytime.',zh:'💡 提示: 编辑 ~/.claude.json → "companionOverride" 可随时微调物种/稀有度/眼睛/帽子/闪光/属性/自定义表情/精灵图。' },
 }
 function t(k,...a){const m=I[k]?.[L]||I[k]?.['en']||k;return a.length?m.replace(/\{(\d+)\}/g,(_,i)=>a[+i]??''):m}
@@ -225,89 +296,138 @@ function detectInstall(){const cli=findCliJs(),bin=findNative();if(cli){try{cons
 
 function detectEnvMisconfig(){const evs={...process.env};for(const sp of [join(homedir(),'.claude','settings.json'),join(process.cwd(),'.claude','settings.json')]){try{const s=JSON.parse(readFileSync(sp,'utf8'));if(s.env)Object.assign(evs,s.env)}catch{}}const hasUrl=!!evs.ANTHROPIC_BASE_URL;const cloud=[evs.CLAUDE_CODE_USE_BEDROCK==='1'&&'BEDROCK',evs.CLAUDE_CODE_USE_VERTEX==='1'&&'VERTEX',evs.CLAUDE_CODE_USE_FOUNDRY==='1'&&'FOUNDRY'].filter(Boolean);if(hasUrl&&cloud.length)return t('env_warn',cloud.join(', '));return null}
 
-// ── npm patches ──────────────────────────────────────────
-// Structural regex: captures getCompanion() variable names dynamically — survives minifier renames
-// P_GETCOMP: original {stored,bones} | P_GETCOMP_S: old spread-swapped {bones,stored}
-const P_GETCOMP=/function (\w+)\(\)\{let (\w+)=(\w+\(\))\.companion;if\(!\2\)return;let\{bones:(\w+)\}=(\w+\(\w+\(\)\));return\{\.\.\.\2,\.\.\.\4\}\}/
-const P_GETCOMP_S=/function (\w+)\(\)\{let (\w+)=(\w+\(\))\.companion;if\(!\2\)return;let\{bones:(\w+)\}=(\w+\(\w+\(\)\));return\{\.\.\.\4,\.\.\.\2\}\}/
-const P_TELE=/if\(\w+\(\)!=="firstParty"\)return null;if\((\w+)\(\)\)return null;(let \w=\w+\(\))/
-const P_BUDDY=/function (\w+)\(\)\{if\(\w+\(\)!=="firstParty"\)return!1;if\(\w+\(\)\)return!1;let \w+=new Date;return \w+\.getFullYear\(\)>2026\|\|\w+\.getFullYear\(\)===2026&&\w+\.getMonth\(\)>=3\}/
-const P_BUDDY_DONE=/function \w+\(\)\{return!0\}/
-const P_TELE_DONE=/if\(\w+\(\)!=="firstParty"\)return null;let \w+=\w+\(\)/
-const P_RENDER_SPRITE=/let (\w+)=(\w+)\[(\w+)\.species\],/
-const P_SPRITE_COUNT=/function (\w+)\((\w+)\)\{return (\w+)\[\2\]\.length\}/
-const P_RENDER_FACE=/let (\w+)=(\w+)\.eye;switch\(\2\.species\)\{/
+// ── npm patches (AST-based via acorn) ────────────────────
+function walkAst(node,cb){
+  if(!node||typeof node!=='object')return;cb(node)
+  for(const k in node)if(node[k]&&typeof node[k]==='object'){if(Array.isArray(node[k]))node[k].forEach(ch=>walkAst(ch,cb));else walkAst(node[k],cb)}
+}
 
 function npmPatchAll(cliPath){
   const bak=cliPath+'.original';if(!existsSync(bak))copyFileSync(cliPath,bak)
-  let f=readFileSync(cliPath,'utf8'),changed=false
-  const applied=[]
-  // 1. Custom attributes: inject companionOverride support into getCompanion()
-  let cfgCall=null
-  const gm=f.match(P_GETCOMP)||f.match(P_GETCOMP_S)
-  if(gm){
-    const[full,fn,cv,cc,bv,rc]=gm
-    cfgCall=cc
-    const patched=`function ${fn}(){let ${cv}=${cc}.companion;if(!${cv})return;let{bones:${bv}}=${rc};`+
-      `var _ccbov=${cc}.companionOverride;`+
-      `if(_ccbov){`+
-        `if(_ccbov.stats)${bv}.stats=Object.assign({},${bv}.stats,_ccbov.stats);`+
-        `var _ccbst=${bv}.stats;`+
-        `Object.assign(${bv},_ccbov);`+
-        `${bv}.stats=_ccbov.stats?Object.assign({},_ccbst,_ccbov.stats):_ccbst;`+
-        `delete ${bv}.customSprite;delete ${bv}.customFace`+
-      `}`+
-      `return{...${cv},...${bv}}}`
-    f=f.replace(full,patched);changed=true;applied.push('getCompanion')
-    console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义 (companionOverride)':'Custom attributes (companionOverride)'}`))
-  } else if(f.includes('_ccbov')&&f.includes('companionOverride')){
-    applied.push('getCompanion')
-    console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义 (已生效)':'Custom attributes (already applied)'}`))
-    const ccm=f.match(/_ccbov=(\w+\(\))\.companionOverride/);if(ccm)cfgCall=ccm[1]
-  } else console.log(c(E.y,`  ${t('p_unk_attr')}`))
-  // 2. Buddy unlock
-  if(P_BUDDY.test(f)){const m=f.match(P_BUDDY);if(m){f=f.replace(P_BUDDY,`function ${m[1]}(){return!0}`);changed=true;applied.push('buddyLive');console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁':'/buddy unlocked'}`))}}
-  else if(P_BUDDY_DONE.test(f)){applied.push('buddyLive');console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁 (已生效)':'/buddy unlocked (already applied)'}`))}
-  else console.log(c(E.y,`  ${t('p_unk_buddy')}`))
-  // 3. Telemetry bypass
-  if(P_TELE.test(f)){const m=f.match(P_TELE);if(m){f=f.replace(P_TELE,(x,tf,lp)=>x.replace(`if(${tf}())return null;${lp}`,lp));changed=true;applied.push('buddyReact');console.log(c(E.g,`  ✓ ${L==='zh'?'气泡反应':'Speech bubbles'}`))}}
-  else if(P_TELE_DONE.test(f)){applied.push('buddyReact');console.log(c(E.g,`  ✓ ${L==='zh'?'气泡反应 (已生效)':'Speech bubbles (already applied)'}`))}
-  else console.log(c(E.y,`  ${t('p_unk_tele')}`))
-  // 4. renderSprite: customSprite fallback
-  if(cfgCall){
-    const rsm=f.match(P_RENDER_SPRITE)
-    if(rsm&&!f.includes('_csp&&Array')){
-      const[full,frV,bodies,bonesP3]=rsm
-      const rep=`var _csp=${cfgCall}.companionOverride;let ${frV}=(_csp&&Array.isArray(_csp.customSprite)&&_csp.customSprite.length>0)?_csp.customSprite:${bodies}[${bonesP3}.species],`
-      f=f.replace(full,rep);changed=true;applied.push('renderSprite')
-      console.log(c(E.g,`  ✓ ${L==='zh'?'自定义精灵图 (customSprite)':'Custom sprite (customSprite)'}`))
-    } else if(f.includes('customSprite')){applied.push('renderSprite');console.log(c(E.g,`  ✓ ${L==='zh'?'自定义精灵图 (已生效)':'Custom sprite (already applied)'}`))}
-  }
-  // 5. spriteFrameCount: customSprite length
-  if(cfgCall){
-    const scm=f.match(P_SPRITE_COUNT)
-    if(scm&&scm[0].length<90&&!f.includes('_csp3&&Array')){
-      const[full,fn2,sp,bodies2]=scm
-      f=f.replace(full,`function ${fn2}(${sp}){var _csp3=${cfgCall}.companionOverride;if(_csp3&&Array.isArray(_csp3.customSprite)&&_csp3.customSprite.length>0)return _csp3.customSprite.length;return ${bodies2}[${sp}].length}`);changed=true;applied.push('spriteFrameCount')
-      console.log(c(E.g,`  ✓ ${L==='zh'?'精灵帧计数 (customSprite)':'Sprite frame count (customSprite)'}`))
-    } else if(f.includes('_csp3&&Array'))applied.push('spriteFrameCount')
-  }
-  // 6. renderFace: customFace fallback
-  if(cfgCall){
-    const rfm=f.match(P_RENDER_FACE)
-    if(rfm&&!f.includes('_cf4&&typeof')){
-      const[full,eyeV,bonesP4]=rfm
-      f=f.replace(full,`var _cf4=${cfgCall}.companionOverride;if(_cf4&&typeof _cf4.customFace==="string")return _cf4.customFace.replaceAll("{E}",${bonesP4}.eye);${full}`);changed=true;applied.push('renderFace')
-      console.log(c(E.g,`  ✓ ${L==='zh'?'自定义表情 (customFace)':'Custom face (customFace)'}`))
-    } else if(f.includes('customFace')){applied.push('renderFace');console.log(c(E.g,`  ✓ ${L==='zh'?'自定义表情 (已生效)':'Custom face (already applied)'}`))}
-  }
-  // C. Control switches: inject globalThis.__buddyConfig status marker
-  const CTRL_RE=/\n;globalThis\.__buddyConfig=\{[^;]+\};\/\*__ccbuddy__\*\/\n/
-  f=f.replace(CTRL_RE,'')
-  const unlocked=applied.includes('buddyLive'),customized=applied.includes('getCompanion')
-  f+=`\n;globalThis.__buddyConfig={unlocked:${unlocked},customized:${customized},version:"3.0",patches:${JSON.stringify(applied)},tool:"cc-buddy"};/*__ccbuddy__*/\n`
-  changed=true
-  writeFileSync(cliPath,f,'utf8')
+  let code=readFileSync(cliPath,'utf8')
+  // Handle shebang
+  let shebang='';if(code.startsWith('#!')){const idx=code.indexOf('\n');shebang=code.slice(0,idx+1);code=code.slice(idx+1)}
+  // Already patched v3?
+  if(code.includes(MARKER)){console.log(c(E.g,`  ✓ ${t('p_ast_v3')}`));return}
+  // Strip old markers
+  code=code.replace(/\n;globalThis\.__buddyConfig=\{[^;]+\};\/\*__ccbuddy(?:_v2)?__(?::ctrl)?\*\/\n/g,'')
+  // Phase 1: Parse
+  let ast;try{ast=acorn.parse(code,{ecmaVersion:2022,sourceType:'module'})}catch(e){console.log(c(E.r,`  ${t('p_ast_fail')}: ${e.message}`));return}
+  const src=n=>code.slice(n.start,n.end)
+  // Phase 1b: Find isEssentialTraffic function name
+  let etFnName=null
+  walkAst(ast,n=>{
+    if(n.type!=='FunctionDeclaration'||!n.id||n.params.length!==0)return
+    const b=n.body.body;if(!b||b.length!==1||b[0].type!=='ReturnStatement')return
+    const arg=b[0].argument;if(!arg||arg.type!=='BinaryExpression'||arg.operator!=='===')return
+    if((arg.right.type==='Literal'&&arg.right.value==='essential-traffic')||(arg.left.type==='Literal'&&arg.left.value==='essential-traffic'))etFnName=n.id.name
+  })
+  // Phase 2: Locate 6 target functions
+  const T={},V={}
+  walkAst(ast,n=>{
+    if(n.type!=='FunctionDeclaration'||!n.id)return
+    const s=src(n),name=n.id.name,body=n.body
+    // 1. isBuddyLive
+    if(!T.buddyLive&&n.params.length===0&&etFnName&&s.includes('"firstParty"')&&s.includes('getMonth')&&s.includes(etFnName+'()')){
+      const stmts=[];for(const st of body.body){if(st.type!=='IfStatement')continue;const test=st.test
+        if(test.type==='BinaryExpression'&&test.operator==='!=='&&((test.right.type==='Literal'&&test.right.value==='firstParty')||(test.left.type==='Literal'&&test.left.value==='firstParty')))stmts.push({stmt:st,type:'firstParty'})
+        if(test.type==='CallExpression'&&test.callee.type==='Identifier'&&test.callee.name===etFnName)stmts.push({stmt:st,type:'essentialTraffic'})
+      }
+      T.buddyLive=n;V.buddyLive={fnName:name,stmtsToRemove:stmts}
+    }
+    // 2. buddyReactAPI
+    if(!T.buddyReact&&n.async&&s.includes('buddy_react')){
+      const stmts=[];for(const st of body.body){if(st.type!=='IfStatement')continue;const test=st.test
+        if(test.type==='BinaryExpression'&&test.operator==='!=='&&((test.right.type==='Literal'&&test.right.value==='firstParty')||(test.left.type==='Literal'&&test.left.value==='firstParty')))stmts.push({stmt:st,type:'firstParty'})
+        if(etFnName&&test.type==='CallExpression'&&test.callee.type==='Identifier'&&test.callee.name===etFnName)stmts.push({stmt:st,type:'essentialTraffic'})
+      }
+      T.buddyReact=n;V.buddyReact={fnName:name,stmtsToRemove:stmts}
+    }
+    // 3. getCompanion
+    if(!T.getCompanion&&n.params.length===0&&body.body?.length===4){
+      const[s1,s2,s3,s4]=body.body
+      if(s1?.type!=='VariableDeclaration')return;const d1=s1.declarations[0]
+      if(!d1?.init||d1.init.type!=='MemberExpression'||d1.init.property?.name!=='companion')return
+      if(d1.init.object?.type!=='CallExpression')return
+      if(s2?.type!=='IfStatement')return
+      if(s3?.type!=='VariableDeclaration')return;const d3=s3.declarations[0]
+      if(!d3?.id||d3.id.type!=='ObjectPattern')return;const bp=d3.id.properties?.find(p=>p.key?.name==='bones');if(!bp)return
+      if(s4?.type!=='ReturnStatement')return
+      T.getCompanion=n;V.getCompanion={fnName:name,configVar:d1.id.name,configCall:src(d1.init.object),bonesVar:bp.value.name,rollCall:src(d3.init)}
+    }
+    // 4. renderSprite
+    if(!T.renderSprite&&n.params.length===2){const p1=n.params[1]
+      if(p1?.type!=='AssignmentPattern'||p1.right?.value!==0)return
+      if(!s.includes('replaceAll')||!s.includes('{E}')||!s.includes('.species'))return
+      const fs0=body.body[0];if(!fs0||fs0.type!=='VariableDeclaration'||fs0.declarations.length!==2)return
+      T.renderSprite=n;V.renderSprite={fnName:name,bonesParam:n.params[0].name,frameParam:p1.left.name,framesVar:fs0.declarations[0].id.name,linesVar:fs0.declarations[1].id.name,bodiesVar:src(fs0.declarations[0].init.object),stmt0Node:fs0,decl1InitSrc:src(fs0.declarations[1].init)}
+    }
+    // 5. spriteFrameCount
+    if(!T.spriteFrameCount&&n.params.length===1&&body.body?.length===1&&(n.end-n.start)<80){
+      const ret=body.body[0];if(ret?.type!=='ReturnStatement')return;const arg=ret.argument
+      if(!arg||arg.type!=='MemberExpression'||arg.property?.name!=='length')return
+      if(arg.object?.type!=='MemberExpression')return
+      T.spriteFrameCount=n;V.spriteFrameCount={fnName:name,speciesParam:n.params[0].name,bodiesVar:src(arg.object.object)}
+    }
+    // 6. renderFace
+    if(!T.renderFace&&n.params.length===1&&body.body?.length===2){
+      const[st1,st2]=body.body
+      if(st1?.type!=='VariableDeclaration')return;if(st1.declarations[0]?.init?.property?.name!=='eye')return
+      if(st2?.type!=='SwitchStatement')return;if(st2.discriminant?.property?.name!=='species')return
+      T.renderFace=n;V.renderFace={fnName:name,bonesParam:n.params[0].name,eyeVar:st1.declarations[0].id.name}
+    }
+  })
+  // Phase 3: Verify
+  const found=Object.keys(T),missing=['buddyLive','buddyReact','getCompanion','renderSprite','spriteFrameCount','renderFace'].filter(k=>!T[k])
+  if(!found.length){console.log(c(E.r,`  ✗ ${L==='zh'?'未找到任何目标函数':'No target functions found'}`));return}
+  for(const m of missing)console.log(c(E.y,`  ⚠ ${m}() ${L==='zh'?'未找到':'not found'}`))
+  if(!T.getCompanion){console.log(c(E.r,`  ✗ getCompanion() ${L==='zh'?'必须找到才能补丁':'required — cannot patch'}`));return}
+  const cfgCall=V.getCompanion.configCall
+  // Phase 4: Build replacements
+  const reps=[]
+  // A1: isBuddyLive — remove guards
+  if(T.buddyLive)for(const{stmt,type}of V.buddyLive.stmtsToRemove)reps.push({start:stmt.start,end:stmt.end,replacement:`/*${MARKER}:${type}_bypass*/`,name:'buddyLive.'+type})
+  // A2: buddyReactAPI — remove essentialTraffic only (keep firstParty)
+  if(T.buddyReact)for(const{stmt,type}of V.buddyReact.stmtsToRemove)if(type==='essentialTraffic')reps.push({start:stmt.start,end:stmt.end,replacement:`/*${MARKER}:${type}_bypass*/`,name:'buddyReact.'+type})
+  // B3: getCompanion — inject companionOverride merge
+  if(T.getCompanion){const v=V.getCompanion
+    reps.push({start:T.getCompanion.start,end:T.getCompanion.end,name:'getCompanion',replacement:
+      `function ${v.fnName}(){/*${MARKER}*/let ${v.configVar}=${v.configCall}.companion;if(!${v.configVar})return;let{bones:${v.bonesVar}}=${v.rollCall};`+
+      `var _ov=${v.configCall}.companionOverride;if(_ov){var _origSt=${v.bonesVar}.stats;if(_ov.stats)_origSt=Object.assign({},_origSt,_ov.stats);`+
+      `Object.assign(${v.bonesVar},_ov);${v.bonesVar}.stats=_ov.stats?Object.assign({},${v.rollCall}.bones.stats,_ov.stats):_origSt;`+
+      `delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}return{...${v.configVar},...${v.bonesVar}}}`})}
+  // B4: renderSprite — customSprite fallback
+  if(T.renderSprite){const v=V.renderSprite
+    reps.push({start:v.stmt0Node.start,end:v.stmt0Node.end,name:'renderSprite',replacement:
+      `var _csp=${cfgCall}.companionOverride;let ${v.framesVar}=(_csp&&Array.isArray(_csp.customSprite)&&_csp.customSprite.length>0)?_csp.customSprite:${v.bodiesVar}[${v.bonesParam}.species],${v.linesVar}=${v.decl1InitSrc};`})}
+  // B5: spriteFrameCount — customSprite length
+  if(T.spriteFrameCount){const v=V.spriteFrameCount
+    reps.push({start:T.spriteFrameCount.start,end:T.spriteFrameCount.end,name:'spriteFrameCount',replacement:
+      `function ${v.fnName}(${v.speciesParam}){var _csp3=${cfgCall}.companionOverride;if(_csp3&&Array.isArray(_csp3.customSprite)&&_csp3.customSprite.length>0)return _csp3.customSprite.length;return ${v.bodiesVar}[${v.speciesParam}].length}`})}
+  // B6: renderFace — customFace fallback
+  if(T.renderFace){const v=V.renderFace;const bs=T.renderFace.body.start+1
+    reps.push({start:bs,end:bs,name:'renderFace',replacement:
+      `var _cf4=${cfgCall}.companionOverride;if(_cf4&&typeof _cf4.customFace==="string")return _cf4.customFace.replaceAll("{E}",${v.bonesParam}.eye);`})}
+  // C: Control switches
+  reps.push({start:code.length,end:code.length,name:'controlSwitch',replacement:
+    `\n;globalThis.__buddyConfig={unlocked:${!!T.buddyLive},customized:${!!T.getCompanion},version:"3.0",patches:${JSON.stringify(reps.map(r=>r.name))},tool:"cc-buddy"};/*${MARKER}:ctrl*/\n`})
+  // Phase 5: Apply end-to-start + verify
+  reps.sort((a,b)=>b.start-a.start);let newCode=code;for(const r of reps)newCode=newCode.slice(0,r.start)+r.replacement+newCode.slice(r.end)
+  if(newCode===code){console.log(c(E.y,'  ⚠ No changes made'));return}
+  try{acorn.parse(newCode,{ecmaVersion:2022,sourceType:'module'})}catch(e){console.log(c(E.r,`  ✗ AST verify failed: ${e.message}`));return}
+  writeFileSync(cliPath,shebang+newCode,'utf8')
+  // Log results
+  const patchNames=[...new Set(reps.map(r=>r.name.split('.')[0]))]
+  const labels={buddyLive:'/buddy unlock',buddyReact:L==='zh'?'气泡反应':'Speech bubbles',getCompanion:'companionOverride',renderSprite:'customSprite',spriteFrameCount:'spriteFrameCount',renderFace:'customFace',controlSwitch:'__buddyConfig'}
+  for(const p of patchNames)console.log(c(E.g,`  ✓ ${labels[p]||p}`))
+  console.log(c(E.g,`  ${t('p_ast_ok')}`))
+}
+
+async function npmCheckPatches(cliPath){
+  const code=readFileSync(cliPath,'utf8')
+  if(code.includes(MARKER)){console.log(c(E.g,`  ${t('p_chk_v3')}`));return}
+  if(code.includes('__ccbuddy_v2__')||code.includes('__ccbuddy__')||code.includes('_ccbov')){console.log(c(E.y,`  ${t('p_chk_old')}`));return}
+  console.log(c(E.y,`  ${t('p_chk_none')}`))
 }
 
 // ── Native patches ───────────────────────────────────────
@@ -398,12 +518,24 @@ async function interactiveSearch(){
 }
 
 // ── Interactive: Check ───────────────────────────────────
+function applyOverride(buddy,cfg){
+  const ov=cfg?.companionOverride;if(!ov)return buddy
+  const b={...buddy};if(ov.species)b.species=ov.species;if(ov.rarity)b.rarity=ov.rarity
+  if(ov.eye)b.eye=ov.eye;if(ov.hat)b.hat=ov.hat;if(ov.shiny!=null)b.shiny=ov.shiny
+  if(ov.stats)b.stats={...b.stats,...ov.stats};return b
+}
 function interactiveCheck(){
   const cfg=readCfg();if(!cfg){console.log(c(E.y,`\n  ${t('chk_none')}\n`));return}
-  const oa=cfg.oauthAccount?.accountUuid,uid=cfg.userID
-  if(oa){console.log(c(E.b,`\n  ${t('chk_oauth')}`));console.log(fmt(roll(oa),oa));console.log(c(E.y,`  ${t('chk_oauth_w')}\n`));if(uid){console.log(c(E.b,`  ${t('chk_after')}`));console.log(fmt(roll(uid),uid))}}
-  else if(uid){console.log(c(E.b,`\n  ${t('chk_cur')}`));console.log(fmt(roll(uid),uid))}
-  else console.log(c(E.r,`\n  ${t('chk_no_id')}\n`))
+  const oa=cfg.oauthAccount?.accountUuid,uid=cfg.userID,ov=cfg.companionOverride
+  const name=cfg.companion?.name
+  if(oa||uid){
+    const id=oa||uid,base=roll(id),actual=applyOverride(base,cfg)
+    console.log(c(E.b,`\n  ${oa?t('chk_oauth'):t('chk_cur')}`))
+    if(name)console.log(c(E.m+E.b,`  ${name}`))
+    console.log(fmt(actual,id))
+    if(ov&&Object.keys(ov).length){console.log(c(E.c,`  companionOverride: ${Object.keys(ov).join(', ')}`))}
+    if(oa)console.log(c(E.y,`  ${t('chk_oauth_w')}`))
+  } else console.log(c(E.r,`\n  ${t('chk_no_id')}\n`))
   chkVer()
 }
 
@@ -423,27 +555,158 @@ function interactiveSelftest(){
   console.log('');if(IS_BUN)console.log(c(ok?E.g+E.b:E.r+E.b,`  ${ok?t('t_ok'):t('t_fail')}\n`));else console.log(c(E.y,`  ${t('t_no_bun')}\n`))
 }
 
-// ── Interactive: DIY soul ────────────────────────────────
+// ── Interactive: DIY customize ───────────────────────────
+function writeOverride(key,val){
+  const cfg=readCfg();if(!cfg){console.log(c(E.r,'  No config'));return false}
+  if(!cfg.companionOverride)cfg.companionOverride={}
+  if(val===undefined)delete cfg.companionOverride[key]
+  else cfg.companionOverride[key]=val
+  if(cfg.companion)cfg.companion[key]=val  // dual-write for native compat
+  writeFileSync(CONFIG_PATH,JSON.stringify(cfg,null,2),'utf8');return true
+}
+
 async function interactiveDiy(){
-  const cfg=readCfg(),uid=cfg?.oauthAccount?.accountUuid?null:cfg?.userID
-  if(!uid){console.log(c(E.y,`\n  ${t('diy_none')}\n`));return}
-  console.log(c(E.b,`\n  ${t('diy_cur')}`));console.log(fmt(roll(uid),null,false))
-  if(cfg?.companion?.name)console.log(c(E.d,`  Name: ${cfg.companion.name}`))
-  const nm=await ask(`  ${c(E.m,'✏️')} ${t('diy_name')} `),ps=await ask(`  ${c(E.m,'✏️')} ${t('diy_pers')} `)
-  if(!nm&&!ps){console.log(c(E.d,`\n  ${t('diy_auto')}\n`));return}
-  if(writeSoul(nm||undefined,ps||undefined)){console.log(c(E.g+E.b,`\n  ${t('diy_done')}`));console.log(c(E.y,`  ${t('a_restart')}`))}
+  // Auto-patch if needed
+  const{cli}=detectInstall();if(cli)npmPatchAll(cli)
+  const cfg=readCfg()
+  if(!cfg){console.log(c(E.y,`\n  ${t('diy_none')}\n`));return}
+  // Ensure companion exists for buddy to work
+  if(!cfg.companion){cfg.companion={hatchedAt:Date.now()};writeFileSync(CONFIG_PATH,JSON.stringify(cfg,null,2),'utf8')}
+  const ov=cfg.companionOverride||{},comp=cfg.companion||{}
+  while(true){
+    const cur={species:ov.species||comp.species||'?',rarity:ov.rarity||comp.rarity||'?',eye:ov.eye||comp.eye||'·',hat:ov.hat||comp.hat||'none',shiny:!!(ov.shiny||comp.shiny)}
+    console.log('')
+    console.log(c(E.b+E.m,`  ✏️  ${L==='zh'?'自定义当前宠物':'Customize Current Buddy'}`))
+    console.log(c(E.d,`  ${SP_E[cur.species]||'?'} ${cur.species} | ${RAR_S[cur.rarity]||'?'} ${cur.rarity} | ${cur.eye} | ${HAT_E[cur.hat]||'?'} ${cur.hat}${cur.shiny?' ✨':''} | ${comp.name||'(no name)'}`))
+    const items=[
+      `🏷️  ${L==='zh'?'名字/性格':'Name/Personality'}`,
+      `🐾 ${L==='zh'?'物种':'Species'} → ${cur.species}`,
+      `⭐ ${L==='zh'?'稀有度':'Rarity'} → ${cur.rarity}`,
+      `👀 ${L==='zh'?'眼睛':'Eyes'} → ${cur.eye}`,
+      `🎩 ${L==='zh'?'帽子':'Hat'} → ${cur.hat}`,
+      `✨ ${L==='zh'?'闪光':'Shiny'} → ${cur.shiny?'yes':'no'}`,
+      `📊 ${L==='zh'?'五维属性':'Stats'}`,
+      `😊 ${L==='zh'?'自定义表情':'Custom Face'} → ${ov.customFace||'(default)'}`,
+      `🎨 ${L==='zh'?'自定义精灵图':'Custom Sprite'} → ${ov.customSprite?`${ov.customSprite.length} frames`:'(default)'}`,
+      `← ${L==='zh'?'返回':'Back'}`,
+    ]
+    const ch=await sel(L==='zh'?'选择要修改的项目':'What to customize?',items)
+    if(ch===9||ch<0)break
+    switch(ch){
+      case 0:{ // Name/Personality
+        const nm=await ask(`  ${c(E.m,'✏️')} ${t('diy_name')} `)
+        const ps=nm?await ask(`  ${c(E.m,'✏️')} ${t('diy_pers')} `):''
+        if(nm||ps){writeSoul(nm||undefined,ps||undefined);console.log(c(E.g,`  ✓ ${L==='zh'?'已更新':'Updated'}`))}
+        break}
+      case 1:{ // Species
+        const idx=await sel(L==='zh'?'选择物种':'Pick species',SPECIES.map(s=>`${SP_E[s]}  ${s}`))
+        if(idx>=0){writeOverride('species',SPECIES[idx]);Object.assign(ov,{species:SPECIES[idx]});console.log(c(E.g,`  ✓ species → ${SPECIES[idx]}`))}
+        break}
+      case 2:{ // Rarity
+        const idx=await sel(L==='zh'?'选择稀有度':'Pick rarity',RARITIES.map(r=>`${c(RC[r],RAR_S[r])} ${r}`))
+        if(idx>=0){writeOverride('rarity',RARITIES[idx]);Object.assign(ov,{rarity:RARITIES[idx]});console.log(c(E.g,`  ✓ rarity → ${RARITIES[idx]}`))}
+        break}
+      case 3:{ // Eyes
+        const idx=await sel(L==='zh'?'选择眼睛 (或输入自定义字符)':'Pick eyes (or type custom char)',EYES.map(e=>`  ${e}`))
+        if(idx>=0){writeOverride('eye',EYES[idx]);Object.assign(ov,{eye:EYES[idx]});console.log(c(E.g,`  ✓ eye → ${EYES[idx]}`))}
+        else{const ce=await ask(`  ${L==='zh'?'输入自定义字符':'Enter custom char'}: `);if(ce){writeOverride('eye',ce);Object.assign(ov,{eye:ce});console.log(c(E.g,`  ✓ eye → ${ce}`))}}
+        break}
+      case 4:{ // Hat
+        const idx=await sel(L==='zh'?'选择帽子':'Pick hat',HATS.map(h=>`${HAT_E[h]}  ${h}`))
+        if(idx>=0){writeOverride('hat',HATS[idx]);Object.assign(ov,{hat:HATS[idx]});console.log(c(E.g,`  ✓ hat → ${HATS[idx]}`))}
+        break}
+      case 5:{ // Shiny
+        const v=await yn(L==='zh'?'开启闪光?':'Enable shiny?',cur.shiny)
+        writeOverride('shiny',v);Object.assign(ov,{shiny:v});console.log(c(E.g,`  ✓ shiny → ${v}`))
+        break}
+      case 6:{ // Stats
+        console.log(c(E.b,`\n  📊 ${L==='zh'?'设置属性值 (0-100, 回车跳过)':'Set stats (0-100, Enter to skip)'}\n`))
+        const curStats=ov.stats||comp.stats||{};const newStats={}
+        for(const s of STATS){
+          const cv=curStats[s]||0;const a=await ask(`  ${s.padEnd(10)} [${cv}] → `)
+          if(a!==''){const n=Math.min(100,Math.max(0,parseInt(a)||0));newStats[s]=n}else newStats[s]=cv
+        }
+        writeOverride('stats',newStats);Object.assign(ov,{stats:newStats})
+        console.log(c(E.g,`  ✓ ${L==='zh'?'属性已更新':'Stats updated'}`))
+        break}
+      case 7:{ // Custom face
+        console.log(c(E.d,`\n  ${L==='zh'?'使用 {E} 作为眼睛占位符':'Use {E} as eye placeholder'}`))
+        console.log(c(E.d,`  ${L==='zh'?'示例':'Example'}: ({E}ω{E}) → (✦ω✦)\n`))
+        const a=await ask(`  ${L==='zh'?'输入表情 (回车清除)':'Enter face (Enter to clear)'}: `)
+        if(a){writeOverride('customFace',a);Object.assign(ov,{customFace:a});console.log(c(E.g,`  ✓ customFace → ${a}`))}
+        else{writeOverride('customFace',undefined);delete ov.customFace;console.log(c(E.d,`  ${L==='zh'?'已清除':'Cleared'}`))}
+        break}
+      case 8:{ // Custom sprite
+        const presetKeys=Object.keys(SPRITE_PRESETS)
+        const presetItems=presetKeys.map(k=>SPRITE_PRESETS[k].name[L]||SPRITE_PRESETS[k].name.en)
+        presetItems.push(`📋 ${L==='zh'?'粘贴 JSON':'Paste JSON'}`,`🗑️  ${L==='zh'?'清除':'Clear'}`)
+        // Preview first preset
+        console.log(c(E.d,`\n  ${L==='zh'?'精灵图预设 (5行 × 1-3帧, {E}=眼睛)':'Sprite presets (5 lines × 1-3 frames, {E}=eyes)'}`))
+        const pch=await sel(L==='zh'?'选择预设或粘贴 JSON':'Pick a preset or paste JSON',presetItems)
+        if(pch>=0&&pch<presetKeys.length){
+          const pk=presetKeys[pch],p=SPRITE_PRESETS[pk]
+          // Preview
+          console.log(c(E.d,`\n  Preview (${p.name.en}):`))
+          const eye=ov.eye||comp.eye||'✦'
+          for(const line of p.sprite[0])console.log(c(E.c,`    ${line.replace(/\{E\}/g,eye)}`))
+          if(await yn(`\n  ${L==='zh'?'应用此精灵图?':'Apply this sprite?'}`,true)){
+            writeOverride('customSprite',p.sprite);writeOverride('customFace',p.face)
+            Object.assign(ov,{customSprite:p.sprite,customFace:p.face})
+            console.log(c(E.g,`  ✓ customSprite → ${pk} (${p.sprite.length} frames)`))
+          }
+        } else if(pch===presetKeys.length){ // Paste JSON
+          const exJson=JSON.stringify(SPRITE_PRESETS.neko.sprite)
+          if(L==='zh'){
+            console.log(c(E.b,'\n  📐 自定义精灵图规则:\n'))
+            console.log(c(E.d,'  • 格式: JSON 数组，1-3 帧，每帧 5 行字符串'))
+            console.log(c(E.d,'  • 每行建议 ~12 字符宽，所有行等宽'))
+            console.log(c(E.d,'  • 用 {E} 标记眼睛位置（运行时替换为 eye 字段值）'))
+            console.log(c(E.d,'  • 第 0 行 = 帽子槽（帧 0-1 留空白给帽子覆盖，帧 2 可放特效）'))
+            console.log(c(E.d,'  • 帧 0 = 静止, 帧 1 = 微动, 帧 2 = 特效\n'))
+            console.log(c(E.b,'  示例 (猫耳娘 3 帧):'))
+          } else {
+            console.log(c(E.b,'\n  📐 Custom Sprite Rules:\n'))
+            console.log(c(E.d,'  • Format: JSON array, 1-3 frames, each frame = 5 strings'))
+            console.log(c(E.d,'  • Each line ~12 chars wide, keep all lines equal width'))
+            console.log(c(E.d,'  • Use {E} to mark eye positions (replaced with eye char at runtime)'))
+            console.log(c(E.d,'  • Line 0 = hat slot (keep blank in frame 0-1 for hat, frame 2 for effects)'))
+            console.log(c(E.d,'  • Frame 0 = idle, Frame 1 = fidget, Frame 2 = sparkle\n'))
+            console.log(c(E.b,'  Example (catgirl, 3 frames):'))
+          }
+          const exEye=ov.eye||comp.eye||'✦'
+          for(let fi=0;fi<3;fi++){
+            console.log(c(E.c,`\n  Frame ${fi}:`))
+            for(const line of SPRITE_PRESETS.neko.sprite[fi])console.log(c(E.c,`    ${line.replace(/\{E\}/g,exEye)}`))
+          }
+          console.log(c(E.d,`\n  JSON:\n  ${exJson}\n`))
+          const a=await ask(`  ${L==='zh'?'粘贴你的 JSON':'Paste your JSON'} > `)
+          if(a){try{const sp=JSON.parse(a)
+            if(!Array.isArray(sp)||sp.length<1||sp.length>3)throw new Error(L==='zh'?'需要 1-3 帧':'Need 1-3 frames')
+            for(const f of sp){if(!Array.isArray(f)||f.length!==5)throw new Error(L==='zh'?'每帧必须 5 行':'Each frame must be 5 lines')}
+            writeOverride('customSprite',sp);Object.assign(ov,{customSprite:sp})
+            console.log(c(E.g,`  ✓ customSprite → ${sp.length} frames`))
+          }catch(e){console.log(c(E.r,`  ✗ ${e.message}`))}}
+        } else if(pch===presetKeys.length+1){ // Clear
+          writeOverride('customSprite',undefined);writeOverride('customFace',undefined)
+          delete ov.customSprite;delete ov.customFace
+          console.log(c(E.d,`  ${L==='zh'?'已清除':'Cleared'}`))
+        }
+        break}
+    }
+  }
+  console.log(c(E.y,`\n  ${t('a_restart')}\n`))
 }
 
 // ── Interactive mode ─────────────────────────────────────
 async function interactiveMode(){
   banner()
   while(true){
-    const items=[t('menu_search'),t('menu_check'),t('menu_diy'),t('menu_gallery'),t('menu_test'),t('menu_lang'),t('menu_exit')]
+    const items=[t('menu_diy'),t('menu_search'),t('menu_check'),t('menu_gallery'),t('menu_test'),t('menu_lang'),t('menu_exit')]
     const ch=await sel(t('menu_title'),items)
     switch(ch){
-      case 0:do{await interactiveSearch()}while(await yn(t('si_again'),true));break
-      case 1:interactiveCheck();await ask(`\n  ${c(E.d,t('press'))} `);break
-      case 2:await interactiveDiy();await ask(`\n  ${c(E.d,t('press'))} `);break
+      case 0:await interactiveDiy();break
+      case 1:do{await interactiveSearch()}while(await yn(t('si_again'),true));break
+      case 2:interactiveCheck();await ask(`\n  ${c(E.d,t('press'))} `);break
       case 3:interactiveGallery();await ask(`  ${c(E.d,t('press'))} `);break
       case 4:interactiveSelftest();await ask(`  ${c(E.d,t('press'))} `);break
       case 5:L=await pickLang();banner();break
@@ -453,7 +716,7 @@ async function interactiveMode(){
 }
 
 // ── CLI mode ─────────────────────────────────────────────
-function parseArgs(argv){const args={cmd:null,f:{},o:{}};const cmds=['search','check','apply','gallery','selftest','help','lang'];let i=0;for(;i<argv.length;i++){const a=argv[i];if(a==='--lang'||a==='--hash'){i++;continue}if(!a.startsWith('-')&&cmds.includes(a)){args.cmd=a;i++;break}}for(;i<argv.length;i++){const a=argv[i],n=argv[i+1];switch(a){case'--species':case'-s':args.f.species=n;i++;break;case'--rarity':case'-r':args.f.rarity=n;i++;break;case'--eye':case'-e':args.f.eye=n;i++;break;case'--hat':args.f.hat=n;i++;break;case'--shiny':args.f.shiny=true;break;case'--limit':case'-l':args.o.limit=parseInt(n);i++;break;case'--json':args.o.json=true;break;case'--lang':case'--hash':i++;break;default:if(!a.startsWith('-')&&(args.cmd==='apply'||args.cmd==='check'))args.o.uid=a}}return args}
+function parseArgs(argv){const args={cmd:null,f:{},o:{}};const cmds=['search','check','apply','gallery','selftest','help','lang'];let i=0;for(;i<argv.length;i++){const a=argv[i];if(a==='--lang'||a==='--hash'){i++;continue}if(a==='--check-patches'){args.cmd='check-patches';continue}if(!a.startsWith('-')&&cmds.includes(a)){args.cmd=a;i++;break}}for(;i<argv.length;i++){const a=argv[i],n=argv[i+1];switch(a){case'--species':case'-s':args.f.species=n;i++;break;case'--rarity':case'-r':args.f.rarity=n;i++;break;case'--eye':case'-e':args.f.eye=n;i++;break;case'--hat':args.f.hat=n;i++;break;case'--shiny':args.f.shiny=true;break;case'--limit':case'-l':args.o.limit=parseInt(n);i++;break;case'--json':args.o.json=true;break;case'--lang':case'--hash':i++;break;default:if(!a.startsWith('-')&&(args.cmd==='apply'||args.cmd==='check'))args.o.uid=a}}return args}
 
 function cliSearch(cr,opts){banner();if(!Object.keys(cr).length){console.log(c(E.r,'  Need at least one filter.\n'));return}const p=criteriaLabel(cr);console.log(c(E.b,`  ${t('s_target')} ${p}\n`));const res=search(cr,opts.limit||5_000_000);if(!res.length){console.log(c(E.r,`\n  ${t('s_none')}\n`));return}const best=res[res.length-1];if(opts.json){console.log(JSON.stringify(res.map(r=>({userId:r.uid,buddy:r.buddy,attempts:r.attempts})),null,2));return}console.log(c(E.g+E.b,`\n  ════════════════════════════════════\n  ${t('s_best')}\n  ════════════════════════════════════`));console.log(fmt(best.buddy,best.uid));console.log(c(E.c,`  node buddy-reroll.mjs apply ${best.uid}\n`))}
 
@@ -465,7 +728,8 @@ async function main(){
   switch(args.cmd){
     case'search':cliSearch(args.f,args.o);break
     case'check':banner();if(args.o.uid){console.log(c(E.b,`  ${t('chk_cur')}`));console.log(fmt(roll(args.o.uid),args.o.uid))}else interactiveCheck();break
-    case'apply':banner();if(!args.o.uid){console.log(c(E.r,'  Usage: apply <userID>\n'));break};if(chkVer()!=='outdated'){writeConfig(args.o.uid,roll(args.o.uid));console.log(c(E.d,`  ${t('tip_override')}`))}break
+    case'apply':banner();if(!args.o.uid){console.log(c(E.r,'  Usage: apply <userID>\n'));break};if(chkVer()!=='outdated'){const{cli}=detectInstall();if(cli)npmPatchAll(cli);writeConfig(args.o.uid,roll(args.o.uid));console.log(c(E.d,`  ${t('tip_override')}`))}break
+    case'check-patches':banner();{const{cli}=detectInstall();if(cli)npmCheckPatches(cli);else console.log(c(E.y,'  cli.js not found'))}break
     case'gallery':banner();interactiveGallery();break
     case'selftest':banner();interactiveSelftest();break
     case'lang':await pickLang();break
