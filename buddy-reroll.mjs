@@ -13,7 +13,7 @@ import { execSync } from 'node:child_process'
 import * as acorn from 'acorn'
 
 // ── Constants ────────────────────────────────────────────
-const VERSION = '3.1.7'
+const VERSION = '3.1.8'
 const MARKER = '__ccbuddy_v3__'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
@@ -441,25 +441,31 @@ function genSalt(){return`ccbf-${Math.floor(Date.now()/1000).toString().padStart
 function bufReplace(buf,oldStr,newStr){const oB=Buffer.from(oldStr),nB=Buffer.from(newStr);let p=0;while(true){const idx=buf.indexOf(oB,p);if(idx===-1)break;nB.copy(buf,idx);p=idx+1}}
 
 function nativePatchAll(binPath,oldSalt,newSalt){
-  const bak=binPath+'.pre-salt-patch';if(!existsSync(bak))copyFileSync(binPath,bak)
-  if(process.platform==='darwin')try{execSync(`codesign --remove-signature "${binPath}"`,{timeout:10000,stdio:'pipe'})}catch{}
-  let buf=readFileSync(binPath),content=buf.toString('ascii'),dirty=false
-  // 1. Buddy unlock
-  const bm=content.match(N_BUDDY_RE)
-  if(bm){const orig=bm[0],fn=bm[1],pad=orig.length-`function ${fn}(){return!0}`.length;if(pad>=0){bufReplace(buf,orig,`function ${fn}(){return!0${';'.repeat(pad)}}`);dirty=true;console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁':'/buddy unlocked'}`))}}
-  // 2. Spread swap (same-length: {...X,...Y} → {...Y,...X})
-  const sm=content.match(P_SPREAD_B)
-  if(sm){const orig=sm[0],rep=orig.replace(`{...${sm[1]},...${sm[2]}}`,`{...${sm[2]},...${sm[1]}}`);bufReplace(buf,orig,rep);dirty=true;console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义':'Custom attributes'}`))}
-  else if(P_SPREAD_A.test(content))console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义 (已生效)':'Custom attributes (already applied)'}`))
-  else console.log(c(E.y,`  ${t('p_unk_attr')}`))
-  // 3. SALT swap
-  const oS=Buffer.from(oldSalt),nS=Buffer.from(newSalt);let cnt=0,p=0
-  while(true){const idx=buf.indexOf(oS,p);if(idx===-1)break;nS.copy(buf,idx);cnt++;p=idx+1}
-  if(cnt>0){dirty=true;console.log(c(E.g,`  ✓ SALT: ${oldSalt} → ${newSalt} (${cnt}x)`))}
-  // Write once
-  if(dirty)writeFileSync(binPath,buf)
-  // Re-sign
-  if(process.platform==='darwin'){try{execSync(`codesign --force --sign - "${binPath}"`,{timeout:10000,stdio:'pipe'});console.log(c(E.g,`  ✓ ${L==='zh'?'重签名':'Re-signed'}`))}catch{console.log(c(E.r,`  ✗ codesign --force --sign - "${binPath}"`))}}
+  try{
+    const bak=binPath+'.pre-salt-patch';if(!existsSync(bak))copyFileSync(binPath,bak)
+    if(process.platform==='darwin')try{execSync(`codesign --remove-signature "${binPath}"`,{timeout:10000,stdio:'pipe'})}catch{}
+    let buf=readFileSync(binPath),content=buf.toString('ascii'),dirty=false
+    // 1. Buddy unlock
+    const bm=content.match(N_BUDDY_RE)
+    if(bm){const orig=bm[0],fn=bm[1],pad=orig.length-`function ${fn}(){return!0}`.length;if(pad>=0){bufReplace(buf,orig,`function ${fn}(){return!0${';'.repeat(pad)}}`);dirty=true;console.log(c(E.g,`  ✓ ${L==='zh'?'/buddy 解锁':'/buddy unlocked'}`))}}
+    // 2. Spread swap (same-length: {...X,...Y} → {...Y,...X})
+    const sm=content.match(P_SPREAD_B)
+    if(sm){const orig=sm[0],rep=orig.replace(`{...${sm[1]},...${sm[2]}}`,`{...${sm[2]},...${sm[1]}}`);bufReplace(buf,orig,rep);dirty=true;console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义':'Custom attributes'}`))}
+    else if(P_SPREAD_A.test(content))console.log(c(E.g,`  ✓ ${L==='zh'?'属性自定义 (已生效)':'Custom attributes (already applied)'}`))
+    else console.log(c(E.y,`  ${t('p_unk_attr')}`))
+    // 3. SALT swap
+    const oS=Buffer.from(oldSalt),nS=Buffer.from(newSalt);let cnt=0,p=0
+    while(true){const idx=buf.indexOf(oS,p);if(idx===-1)break;nS.copy(buf,idx);cnt++;p=idx+1}
+    if(cnt>0){dirty=true;console.log(c(E.g,`  ✓ SALT: ${oldSalt} → ${newSalt} (${cnt}x)`))}
+    // Write once
+    if(dirty)writeFileSync(binPath,buf)
+    // Re-sign
+    if(process.platform==='darwin'){try{execSync(`codesign --force --sign - "${binPath}"`,{timeout:10000,stdio:'pipe'});console.log(c(E.g,`  ✓ ${L==='zh'?'重签名':'Re-signed'}`))}catch{console.log(c(E.r,`  ✗ codesign --force --sign - "${binPath}"`))}}
+  }catch(e){
+    if(e.code==='ETXTBSY')console.log(c(E.r,`  ✗ ${L==='zh'?'二进制正在运行，请先关闭 Claude Code 再重试':'Binary is in use — close Claude Code first, then retry'}`))
+    else if(e.code==='EACCES'||e.code==='EPERM')console.log(c(E.r,`  ✗ ${L==='zh'?'权限不足，请用 sudo 运行':'Permission denied — try running with sudo'}`))
+    else console.log(c(E.r,`  ✗ ${L==='zh'?'原生二进制补丁失败':'Native patch failed'}: ${e.code||e.message}`))
+  }
 }
 
 // ── Config writers ───────────────────────────────────────

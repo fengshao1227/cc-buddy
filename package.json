@@ -1,6 +1,6 @@
 {
   "name": "cc-buddy",
-  "version": "3.1.7",
+  "version": "3.1.8",
   "description": "🎰 Interactive pet reroller for Claude Code /buddy. Pick species, rarity, eyes, hat, shiny — guided step by step. EN/中文.",
   "type": "module",
   "bin": {
