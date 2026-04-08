@@ -13,7 +13,7 @@ import { execSync } from 'node:child_process'
 import * as acorn from 'acorn'
 
 // ── Constants ────────────────────────────────────────────
-const VERSION = '3.1.8'
+const VERSION = '3.2.0'
 const MARKER = '__ccbuddy_v3__'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
@@ -337,11 +337,23 @@ function npmPatchAll(cliPath){
     }
     // 2. buddyReactAPI
     if(!T.buddyReact&&n.async&&s.includes('buddy_react')){
-      const stmts=[];for(const st of body.body){if(st.type!=='IfStatement')continue;const test=st.test
+      const stmts=[];for(let _si=0;_si<body.body.length;_si++){const st=body.body[_si];if(st.type!=='IfStatement')continue;const test=st.test
         if(test.type==='BinaryExpression'&&test.operator==='!=='&&((test.right.type==='Literal'&&test.right.value==='firstParty')||(test.left.type==='Literal'&&test.left.value==='firstParty')))stmts.push({stmt:st,type:'firstParty'})
         if(etFnName&&test.type==='CallExpression'&&test.callee.type==='Identifier'&&test.callee.name===etFnName)stmts.push({stmt:st,type:'essentialTraffic'})
+        // noOrg guard: if(!X)return null where prev stmt declared X from .organizationUuid
+        if(test.type==='UnaryExpression'&&test.operator==='!'&&st.consequent?.type==='ReturnStatement'&&st.consequent.argument?.value===null){
+          const prev=body.body[_si-1];if(prev?.type==='VariableDeclaration'&&src(prev).includes('organizationUuid'))
+            stmts.push({stmt:st,type:'noOrg',testSrc:src(test)})
+        }
       }
-      T.buddyReact=n;V.buddyReact={fnName:name,stmtsToRemove:stmts}
+      // Extract minified helper names from function source (version-independent)
+      const _hApiType=(s.match(/(\w+)\(\)\s*!==\s*"firstParty"/)||[])[1]
+      const _hConfig=(s.match(/(\w+)\(\)\.BASE_API_URL/)||[])[1]
+      const _hSettings=(s.match(/(\w+)\(\)\.oauthAccount/)||[])[1]
+      const _hAxios=(s.match(/await\s+(\w+)\.post\(/)||[])[1]
+      T.buddyReact=n;V.buddyReact={fnName:name,stmtsToRemove:stmts,
+        params:n.params.map(p=>p.name||(p.left&&p.left.name)),
+        helpers:{apiTypeFn:_hApiType,configFn:_hConfig,settingsFn:_hSettings,axiosVar:_hAxios}}
     }
     // 3. getCompanion
     if(!T.getCompanion&&n.params.length===0&&body.body?.length===4){
@@ -387,15 +399,38 @@ function npmPatchAll(cliPath){
   const reps=[]
   // A1: isBuddyLive — remove guards
   if(T.buddyLive)for(const{stmt,type}of V.buddyLive.stmtsToRemove)reps.push({start:stmt.start,end:stmt.end,replacement:`/*${MARKER}:${type}_bypass*/`,name:'buddyLive.'+type})
-  // A2: buddyReactAPI — remove essentialTraffic only (keep firstParty)
-  if(T.buddyReact)for(const{stmt,type}of V.buddyReact.stmtsToRemove)if(type==='essentialTraffic')reps.push({start:stmt.start,end:stmt.end,replacement:`/*${MARKER}:${type}_bypass*/`,name:'buddyReact.'+type})
+  // A2: buddyReactAPI — proxy third-party & no-org through /v1/messages, bypass essentialTraffic
+  if(T.buddyReact){const bh=V.buddyReact.helpers,bp=V.buddyReact.params||[]
+    const[pB,pT,pR,,pA,pS]=bp
+    // Shared proxy code: /v1/messages fallback (used by both thirdParty and noOrg guards)
+    const _proxy=(bh.configFn&&bh.settingsFn&&bh.axiosVar)?
+      `try{var _ak=process.env.ANTHROPIC_API_KEY||process.env.ANTHROPIC_AUTH_TOKEN;if(!_ak)return null;`+
+      `var _bu=(process.env.ANTHROPIC_BASE_URL||${bh.configFn}().BASE_API_URL||"https://api.anthropic.com")+"/v1/messages";`+
+      `var _cfg=${bh.settingsFn}();var _mdl=process.env.ANTHROPIC_MODEL||_cfg.buddyReactModel||process.env.ANTHROPIC_SMALL_FAST_MODEL||process.env.ANTHROPIC_DEFAULT_SONNET_MODEL||"claude-haiku-4-5-20251001";`+
+      `var _ctx=${pR}==="error"?"Something went wrong. ":${pR}==="test-fail"?"Tests failed. ":${pR}==="hatch"?"You just hatched! ":${pR}==="pet"?"Someone petted you! ":"";`+
+      `if(${pA})_ctx+="User is talking to you directly. ";`+
+      `var _sys="You are "+(${pB}.name||"Buddy")+", a "+(${pB}.species||"pet")+" companion. "+(${pB}.personality||"cute")+". React to what is happening in 1-5 words. Be cute and in-character.";`+
+      `var _r=await ${bh.axiosVar}.post(_bu,{model:_mdl,max_tokens:128,system:_sys,`+
+      `messages:[{role:"user",content:_ctx+(${pT}||"").slice(0,500)}]`+
+      `},{headers:{"x-api-key":_ak,"anthropic-version":"2023-06-01"},timeout:15000,signal:${pS}});`+
+      `var _tb=_r.data?.content?.find(function(_c){return _c.type==="text"});return(_tb?.text||"").trim()||null}catch(_e){return null}`:null
+    for(const{stmt,type,testSrc}of V.buddyReact.stmtsToRemove){
+      if(type==='essentialTraffic')reps.push({start:stmt.start,end:stmt.end,replacement:`/*${MARKER}:${type}_bypass*/`,name:'buddyReact.'+type})
+      if(type==='firstParty'&&bh.apiTypeFn&&_proxy)
+        reps.push({start:stmt.start,end:stmt.end,name:'buddyReact.thirdPartyProxy',replacement:
+          `if(${bh.apiTypeFn}()!=="firstParty"){/*${MARKER}:thirdPartyReact*/${_proxy}}`})
+      if(type==='noOrg'&&_proxy)
+        reps.push({start:stmt.start,end:stmt.end,name:'buddyReact.noOrgProxy',replacement:
+          `if(${testSrc}){/*${MARKER}:noOrgReact*/${_proxy}}`})
+    }
+  }
   // B3: getCompanion — inject companionOverride merge
   if(T.getCompanion){const v=V.getCompanion
     reps.push({start:T.getCompanion.start,end:T.getCompanion.end,name:'getCompanion',replacement:
       `function ${v.fnName}(){/*${MARKER}*/let ${v.configVar}=${v.configCall}.companion;if(!${v.configVar})return;let{bones:${v.bonesVar}}=${v.rollCall};`+
       `var _ov=${v.configCall}.companionOverride;if(_ov){var _origSt=${v.bonesVar}.stats;if(_ov.stats)_origSt=Object.assign({},_origSt,_ov.stats);`+
       `Object.assign(${v.bonesVar},_ov);${v.bonesVar}.stats=_ov.stats?Object.assign({},${v.rollCall}.bones.stats,_ov.stats):_origSt;`+
-      `delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}return{...${v.configVar},...${v.bonesVar}}}`})}
+      `delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}return{...${v.configVar},...${v.bonesVar},name:${v.configVar}.name,personality:${v.configVar}.personality}}`})}
   // B4: renderSprite — customSprite fallback
   if(T.renderSprite){const v=V.renderSprite
     reps.push({start:v.stmt0Node.start,end:v.stmt0Node.end,name:'renderSprite',replacement:
@@ -418,7 +453,7 @@ function npmPatchAll(cliPath){
   writeFileSync(cliPath,shebang+newCode,'utf8')
   // Log results
   const patchNames=[...new Set(reps.map(r=>r.name.split('.')[0]))]
-  const labels={buddyLive:'/buddy unlock',buddyReact:L==='zh'?'气泡反应':'Speech bubbles',getCompanion:'companionOverride',renderSprite:'customSprite',spriteFrameCount:'spriteFrameCount',renderFace:'customFace',controlSwitch:'__buddyConfig'}
+  const labels={buddyLive:'/buddy unlock',buddyReact:L==='zh'?'气泡反应 (第三方代理)':'Speech bubbles (3rd-party proxy)',getCompanion:'companionOverride',renderSprite:'customSprite',spriteFrameCount:'spriteFrameCount',renderFace:'customFace',controlSwitch:'__buddyConfig'}
   for(const p of patchNames)console.log(c(E.g,`  ✓ ${labels[p]||p}`))
   console.log(c(E.g,`  ${t('p_ast_ok')}`))
 }
