@@ -1,7 +1,7 @@
 {
   "name": "cc-buddy",
-  "version": "3.2.1",
-  "description": "🎰 Interactive pet reroller for Claude Code /buddy. Pick species, rarity, eyes, hat, shiny — guided step by step. EN/中文.",
+  "version": "3.2.3",
+  "description": "🎰 Interactive pet reroller for Claude Code /buddy. Pick species, rarity, eyes, hat, shiny — guided step by step. EN/中文. (AST patch inspired by https://linux.do/t/topic/1916229/10)",
   "type": "module",
   "bin": {
     "cc-buddy": "./dist/buddy-reroll.mjs"

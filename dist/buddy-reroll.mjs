@@ -5660,7 +5660,7 @@ function parse3(input, options) {
 }
 
 // buddy-reroll.mjs
-var VERSION = "3.2.1";
+var VERSION = "3.2.2";
 var MARKER = "__ccbuddy_v3__";
 var SALT = "friend-2026-401";
 var CONFIG_PATH = join(homedir(), ".claude.json");
@@ -5747,6 +5747,11 @@ var SPRITE_PRESETS = {
     ["            ", "  ({E} _ {E})   ", "  \\|--|/    ", " / o    \\   ", "d        b  "],
     ["            ", " \\({E} _ {E})/  ", "   |--|     ", "   |  |     ", "  d  b   o  "],
     ["  \u266A    \u266B    ", "   ({E} _ {E})  ", "  \\|--|/    ", " /   o   \\  ", "d         b "]
+  ] },
+  kingcat: { name: { en: "\u{1F451} King Cat", zh: "\u{1F451} \u732B\u7687" }, face: "\u2571({E}\u203F\u203F{E})\u2572 \u03C9\u0414\u03C9", sprite: [
+    ["      \u{1F451}        ", "    \u0394  \u23E0 \u23E0  \u0394    ", "  \u2571 \u4EBA{E}\u203F\u203F{E}\u4EBA \u2572 ", "    \uFE36 \u03C9 \u0414 \u03C9 \uFE36   ", "                  "],
+    ["      \u{1F451}    \u2661   ", "    \u0394  \u23E0 \u23E0  \u0394    ", "  \u2571 \u4EBA{E}\u203F\u203F{E}\u4EBA \u2572 ", "    \uFE36 \u03C9 \u0414 \u03C9 \uFE36   ", "                  "],
+    ["      \u{1F451}        ", "  \u2727 \u0394  \u23E0 \u23E0  \u0394 \u2727  ", "  \u2571 \u4EBA{E}\u203F\u203F{E}\u4EBA \u2572 ", "  \u2727 \uFE36 \u03C9 \u0414 \u03C9 \uFE36 \u2727 ", "                  "]
   ] }
 };
 var STATS = ["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"];
@@ -6387,7 +6392,7 @@ function npmPatchAll(cliPath) {
   }
   if (T.getCompanion) {
     const v = V.getCompanion;
-    reps.push({ start: T.getCompanion.start, end: T.getCompanion.end, name: "getCompanion", replacement: `function ${v.fnName}(){/*${MARKER}*/let ${v.configVar}=${v.configCall}.companion;if(!${v.configVar})return;let{bones:${v.bonesVar}}=${v.rollCall};var _ov=${v.configCall}.companionOverride;if(_ov){var _origSt=${v.bonesVar}.stats;if(_ov.stats)_origSt=Object.assign({},_origSt,_ov.stats);Object.assign(${v.bonesVar},_ov);${v.bonesVar}.stats=_ov.stats?Object.assign({},${v.rollCall}.bones.stats,_ov.stats):_origSt;delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}return{...${v.configVar},...${v.bonesVar},name:${v.configVar}.name,personality:${v.configVar}.personality}}` });
+    reps.push({ start: T.getCompanion.start, end: T.getCompanion.end, name: "getCompanion", replacement: `function ${v.fnName}(){/*${MARKER}*/let ${v.configVar}=${v.configCall}.companion;if(!${v.configVar})return;let{bones:${v.bonesVar}}=${v.rollCall};var _ov=${v.configCall}.companionOverride;if(_ov){var _origSt=${v.bonesVar}.stats;if(_ov.stats)_origSt=Object.assign({},_origSt,_ov.stats);Object.assign(${v.bonesVar},_ov);${v.bonesVar}.stats=_ov.stats?Object.assign({},${v.rollCall}.bones.stats,_ov.stats):_origSt;delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}var _n=${v.configVar}.name||${v.bonesVar}.species||"Buddy";return{...${v.configVar},...${v.bonesVar},name:_n,personality:${v.configVar}.personality||"cute and curious"}}` });
   }
   if (T.renderSprite) {
     const v = V.renderSprite;

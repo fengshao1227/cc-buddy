@@ -13,7 +13,7 @@ import { execSync } from 'node:child_process'
 import * as acorn from 'acorn'
 
 // ── Constants ────────────────────────────────────────────
-const VERSION = '3.2.1'
+const VERSION = '3.2.2'
 const MARKER = '__ccbuddy_v3__'
 const SALT = 'friend-2026-401'
 const CONFIG_PATH = join(homedir(), '.claude.json')
@@ -87,6 +87,10 @@ const SPRITE_PRESETS = {
     ['            ','  ({E} _ {E})   ','  \\|--|/    ',' / o    \\   ','d        b  '],
     ['            ',' \\({E} _ {E})/  ','   |--|     ','   |  |     ','  d  b   o  '],
     ['  ♪    ♫    ','   ({E} _ {E})  ','  \\|--|/    ',' /   o   \\  ','d         b ']]},
+  kingcat:{name:{en:'👑 King Cat',zh:'👑 猫皇'},face:'╱({E}‿‿{E})╲ ωДω',sprite:[
+    ['      👑        ','    Δ  ⏠ ⏠  Δ    ','  ╱ 人{E}‿‿{E}人 ╲ ','    ︶ ω Д ω ︶   ','                  '],
+    ['      👑    ♡   ','    Δ  ⏠ ⏠  Δ    ','  ╱ 人{E}‿‿{E}人 ╲ ','    ︶ ω Д ω ︶   ','                  '],
+    ['      👑        ','  ✧ Δ  ⏠ ⏠  Δ ✧  ','  ╱ 人{E}‿‿{E}人 ╲ ','  ✧ ︶ ω Д ω ︶ ✧ ','                  ']]},
 }
 const STATS = ['DEBUGGING','PATIENCE','CHAOS','WISDOM','SNARK']
 const RARITY_FLOOR = { common:5, uncommon:15, rare:25, epic:35, legendary:50 }
@@ -436,7 +440,7 @@ function npmPatchAll(cliPath){
       `function ${v.fnName}(){/*${MARKER}*/let ${v.configVar}=${v.configCall}.companion;if(!${v.configVar})return;let{bones:${v.bonesVar}}=${v.rollCall};`+
       `var _ov=${v.configCall}.companionOverride;if(_ov){var _origSt=${v.bonesVar}.stats;if(_ov.stats)_origSt=Object.assign({},_origSt,_ov.stats);`+
       `Object.assign(${v.bonesVar},_ov);${v.bonesVar}.stats=_ov.stats?Object.assign({},${v.rollCall}.bones.stats,_ov.stats):_origSt;`+
-      `delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}return{...${v.configVar},...${v.bonesVar},name:${v.configVar}.name,personality:${v.configVar}.personality}}`})}
+      `delete ${v.bonesVar}.customSprite;delete ${v.bonesVar}.customFace}var _n=${v.configVar}.name||${v.bonesVar}.species||"Buddy";return{...${v.configVar},...${v.bonesVar},name:_n,personality:${v.configVar}.personality||"cute and curious"}}`})}
   // B4: renderSprite — customSprite fallback
   if(T.renderSprite){const v=V.renderSprite
     reps.push({start:v.stmt0Node.start,end:v.stmt0Node.end,name:'renderSprite',replacement:
