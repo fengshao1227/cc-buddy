@@ -5660,7 +5660,7 @@ function parse3(input, options) {
 }
 
 // buddy-reroll.mjs
-var VERSION = "3.2.0";
+var VERSION = "3.2.1";
 var MARKER = "__ccbuddy_v3__";
 var SALT = "friend-2026-401";
 var CONFIG_PATH = join(homedir(), ".claude.json");
@@ -6375,8 +6375,8 @@ function npmPatchAll(cliPath) {
   if (T.buddyLive) for (const { stmt, type } of V.buddyLive.stmtsToRemove) reps.push({ start: stmt.start, end: stmt.end, replacement: `/*${MARKER}:${type}_bypass*/`, name: "buddyLive." + type });
   if (T.buddyReact) {
     const bh = V.buddyReact.helpers, bp = V.buddyReact.params || [];
-    const [pB, pT, pR, , pA, pS] = bp;
-    const _proxy = bh.configFn && bh.settingsFn && bh.axiosVar ? `try{var _ak=process.env.ANTHROPIC_API_KEY||process.env.ANTHROPIC_AUTH_TOKEN;if(!_ak)return null;var _bu=(process.env.ANTHROPIC_BASE_URL||${bh.configFn}().BASE_API_URL||"https://api.anthropic.com")+"/v1/messages";var _cfg=${bh.settingsFn}();var _mdl=process.env.ANTHROPIC_MODEL||_cfg.buddyReactModel||process.env.ANTHROPIC_SMALL_FAST_MODEL||process.env.ANTHROPIC_DEFAULT_SONNET_MODEL||"claude-haiku-4-5-20251001";var _ctx=${pR}==="error"?"Something went wrong. ":${pR}==="test-fail"?"Tests failed. ":${pR}==="hatch"?"You just hatched! ":${pR}==="pet"?"Someone petted you! ":"";if(${pA})_ctx+="User is talking to you directly. ";var _sys="You are "+(${pB}.name||"Buddy")+", a "+(${pB}.species||"pet")+" companion. "+(${pB}.personality||"cute")+". React to what is happening in 1-5 words. Be cute and in-character.";var _r=await ${bh.axiosVar}.post(_bu,{model:_mdl,max_tokens:128,system:_sys,messages:[{role:"user",content:_ctx+(${pT}||"").slice(0,500)}]},{headers:{"x-api-key":_ak,"anthropic-version":"2023-06-01"},timeout:15000,signal:${pS}});var _tb=_r.data?.content?.find(function(_c){return _c.type==="text"});return(_tb?.text||"").trim()||null}catch(_e){return null}` : null;
+    const [pB, pT, pR, pZ, pA, pS] = bp;
+    const _proxy = bh.configFn && bh.settingsFn && bh.axiosVar ? `try{var _ak=process.env.ANTHROPIC_API_KEY||process.env.ANTHROPIC_AUTH_TOKEN;if(!_ak)return null;var _bu=(process.env.ANTHROPIC_BASE_URL||${bh.configFn}().BASE_API_URL||"https://api.anthropic.com")+"/v1/messages";var _cfg=${bh.settingsFn}();var _mdl=process.env.ANTHROPIC_MODEL||_cfg.buddyReactModel||process.env.ANTHROPIC_SMALL_FAST_MODEL||process.env.ANTHROPIC_DEFAULT_SONNET_MODEL||"claude-haiku-4-5-20251001";var _ctx=${pR}==="error"?"Something went wrong. ":${pR}==="test-fail"?"Tests failed. ":${pR}==="hatch"?"You just hatched! ":${pR}==="pet"?"Someone petted you! ":"";if(${pA})_ctx+="User is talking to you directly. Respond to them! ";var _st=${pB}.stats||{};var _dom=Object.entries(_st).sort(function(a,b){return b[1]-a[1]}).slice(0,2).map(function(e){return e[0]+":"+e[1]}).join(",");var _rec=(${pZ}||[]).slice(-3).join("; ");var _sys="You are "+(${pB}.name||"Buddy")+", a "+(${pB}.rarity||"common")+" "+(${pB}.species||"pet")+" companion."+" Personality: "+(${pB}.personality||"cute and curious")+"."+" Your strongest traits: "+(_dom||"balanced")+"."+(_rec?" You recently said: "+_rec+". Do NOT repeat yourself.":"")+" React to what is happening in 1-8 words. Stay in character. Be expressive based on your stats \u2014 high SNARK=snarky, high CHAOS=chaotic, high WISDOM=wise, high PATIENCE=calm, high DEBUGGING=nerdy.";var _r=await ${bh.axiosVar}.post(_bu,{model:_mdl,max_tokens:128,system:_sys,messages:[{role:"user",content:_ctx+(${pT}||"").slice(0,500)}]},{headers:{"x-api-key":_ak,"anthropic-version":"2023-06-01"},timeout:15000,signal:${pS}});var _tb=_r.data?.content?.find(function(_c){return _c.type==="text"});return(_tb?.text||"").trim()||null}catch(_e){return null}` : null;
     for (const { stmt, type, testSrc } of V.buddyReact.stmtsToRemove) {
       if (type === "essentialTraffic") reps.push({ start: stmt.start, end: stmt.end, replacement: `/*${MARKER}:${type}_bypass*/`, name: "buddyReact." + type });
       if (type === "firstParty" && bh.apiTypeFn && _proxy)
