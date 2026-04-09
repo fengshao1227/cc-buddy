@@ -2,6 +2,10 @@
 
 Custom buddy toolkit for Claude Code `/buddy`. Full control over your companion's appearance, stats, and sprite.
 
+> **Claude Code >= 2.1.97 moved the buddy system to server-side. This tool only works with Claude Code <= 2.1.96.**
+>
+> To install a compatible version: `npm install -g @anthropic-ai/claude-code@2.1.96`
+
 ```bash
 npx cc-buddy
 ```
@@ -138,8 +142,10 @@ duck, goose, blob, cat, dragon, octopus, owl, penguin, turtle, snail, ghost, axo
 
 ## Requirements
 
-- Claude Code >= 2.1.89
+- **Claude Code 2.1.89 ~ 2.1.96** (2.1.97+ moved buddy to server-side, not patchable)
 - Node.js >= 16 or Bun
+
+To downgrade Claude Code: `npm install -g @anthropic-ai/claude-code@2.1.96`
 
 ## License
 
@@ -154,5 +160,7 @@ MIT
 自定义宠物菜单覆盖所有属性（物种/稀有度/眼睛/帽子/闪光/属性/表情/精灵图），15 款精灵图预设可直接选用。高手可以编辑 `~/.claude.json` 的 `companionOverride` 字段。
 
 Claude Code 更新后补丁会丢失，重新跑 `npx cc-buddy` 即可。
+
+**注意：Claude Code 2.1.97+ 将宠物系统迁移到服务端，本工具无法使用。** 请降级到 2.1.96：`npm install -g @anthropic-ai/claude-code@2.1.96`
 
 > 我的开源项目已链接认可 [LINUX DO](https://linux.do/) 社区
